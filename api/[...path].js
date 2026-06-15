@@ -80,7 +80,10 @@ export default async function handler(request, response) {
     }
 
     const originalUrl = new URL(request.url || '/', 'https://invitely.local');
-    const targetUrl = new URL(originalUrl.pathname + originalUrl.search, baseUrl);
+    const proxyPath = originalUrl.pathname.startsWith('/api/')
+        ? originalUrl.pathname
+        : `/api${originalUrl.pathname.startsWith('/') ? originalUrl.pathname : `/${originalUrl.pathname}`}`;
+    const targetUrl = new URL(proxyPath + originalUrl.search, baseUrl);
     const method = request.method || 'GET';
     const hasBody = !['GET', 'HEAD'].includes(method);
 

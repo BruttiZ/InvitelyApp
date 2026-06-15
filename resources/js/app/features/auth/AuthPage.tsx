@@ -45,8 +45,8 @@ type ApiAuthResponse = {
         };
     };
     message?: string;
-    error?: string;
-    errors?: Record<string, string[]>;
+    error?: unknown;
+    errors?: Record<string, unknown>;
 };
 
 const roleOptions: {
@@ -124,6 +124,26 @@ function uniqueEmail(email: string): string {
     return `${localPart}+novo-${Date.now().toString().slice(-4)}@${domain}`;
 }
 
+function stringifyApiMessage(value: unknown): string | null {
+    if (typeof value === 'string' && value.trim() !== '') {
+        return value;
+    }
+
+    if (Array.isArray(value)) {
+        const messages = value.map(stringifyApiMessage).filter(Boolean);
+
+        return messages.length > 0 ? messages.join(' ') : null;
+    }
+
+    if (value && typeof value === 'object') {
+        const messages = Object.values(value).map(stringifyApiMessage).filter(Boolean);
+
+        return messages.length > 0 ? messages.join(' ') : JSON.stringify(value);
+    }
+
+    return null;
+}
+
 async function requestApiAuth(mode: AuthMode, payload: Record<string, string>): Promise<AuthSession> {
     const response = await fetch(apiV1Url(mode === 'login' ? '/go/auth/login' : '/go/auth/register'), {
         method: 'POST',
@@ -138,10 +158,17 @@ async function requestApiAuth(mode: AuthMode, payload: Record<string, string>): 
     const token = data.data?.token ?? data.data?.access_token;
 
     if (!response.ok || !token || !data.data?.user) {
-        const validationMessage =
-            data.errors && typeof data.errors === 'object' ? Object.values(data.errors).flat().join(' ') : null;
+        const validationMessage = stringifyApiMessage(data.errors);
+        const responseMessage = stringifyApiMessage(data.message) ?? stringifyApiMessage(data.error);
 
-        throw new Error(validationMessage ?? data.message ?? data.error ?? 'Nao foi possivel autenticar na API.');
+        if (response.status === 404) {
+            throw new Error(
+                responseMessage ??
+                    'Rota de login nao encontrada. Verifique se o frontend esta apontando para o Laravel publicado.',
+            );
+        }
+
+        throw new Error(validationMessage ?? responseMessage ?? 'Nao foi possivel autenticar na API.');
     }
 
     return {
