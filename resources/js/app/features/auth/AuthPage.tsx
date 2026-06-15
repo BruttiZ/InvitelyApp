@@ -22,7 +22,7 @@ import type { LucideIcon } from 'lucide-react';
 import { SyntheticEvent, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthSession, UserRole, roleLabel, storeSession } from '../../auth/session';
-import { apiUrl } from '../../../lib/api';
+import { apiV1Url } from '../../../lib/api';
 
 type AuthMode = 'login' | 'register';
 
@@ -34,6 +34,7 @@ type AuthMutationResult = {
 type ApiAuthResponse = {
     data?: {
         access_token?: string;
+        token?: string;
         token_type?: string;
         user?: {
             id: string;
@@ -124,7 +125,7 @@ function uniqueEmail(email: string): string {
 }
 
 async function requestApiAuth(mode: AuthMode, payload: Record<string, string>): Promise<AuthSession> {
-    const response = await fetch(apiUrl(mode === 'login' ? '/auth/login' : '/auth/register'), {
+    const response = await fetch(apiV1Url(mode === 'login' ? '/go/auth/login' : '/go/auth/register'), {
         method: 'POST',
         headers: {
             Accept: 'application/json',
@@ -134,7 +135,9 @@ async function requestApiAuth(mode: AuthMode, payload: Record<string, string>): 
     });
     const data = (await response.json().catch(() => ({}))) as ApiAuthResponse;
 
-    if (!response.ok || !data.data?.access_token || !data.data.user) {
+    const token = data.data?.token ?? data.data?.access_token;
+
+    if (!response.ok || !token || !data.data?.user) {
         const validationMessage =
             data.errors && typeof data.errors === 'object' ? Object.values(data.errors).flat().join(' ') : null;
 
@@ -142,7 +145,7 @@ async function requestApiAuth(mode: AuthMode, payload: Record<string, string>): 
     }
 
     return {
-        token: data.data.access_token,
+        token,
         token_type: 'Bearer',
         user: {
             ...data.data.user,

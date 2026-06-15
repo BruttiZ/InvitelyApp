@@ -31,7 +31,7 @@
             "prettier --write"
         ],
         "*.php": [
-            "vendor/bin/pint"
+            "node scripts/run-pint.mjs"
         ]
     },
     "dependencies": {

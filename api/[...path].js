@@ -18,6 +18,20 @@ function normalizeBaseUrl(value) {
     return typeof value === 'string' ? value.replace(/\/$/, '') : '';
 }
 
+function isSecureProductionUrl(value) {
+    if (!value) {
+        return false;
+    }
+
+    try {
+        const url = new URL(value);
+
+        return url.protocol === 'https:' && !['localhost', '127.0.0.1', '0.0.0.0'].includes(url.hostname);
+    } catch {
+        return false;
+    }
+}
+
 function forwardHeaders(headers) {
     const forwarded = {};
 
@@ -47,11 +61,19 @@ function responseHeaders(headers) {
 }
 
 export default async function handler(request, response) {
-    const baseUrl = normalizeBaseUrl(process.env.LARAVEL_API_URL || process.env.VITE_API_URL);
+    const baseUrl = normalizeBaseUrl(process.env.LARAVEL_API_URL);
 
     if (!baseUrl) {
         response.status(503).json({
-            message: 'Backend Laravel nao configurado. Defina LARAVEL_API_URL na Vercel apontando para este projeto rodando Laravel.',
+            message: 'Backend Laravel nao configurado. Defina LARAVEL_API_URL na Vercel apontando para o backend Laravel em producao.',
+        });
+
+        return;
+    }
+
+    if (!isSecureProductionUrl(baseUrl)) {
+        response.status(503).json({
+            message: 'LARAVEL_API_URL deve ser uma URL HTTPS publica do backend Laravel em producao.',
         });
 
         return;

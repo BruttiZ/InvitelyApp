@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Admin\AdminGuestController;
 use App\Http\Controllers\Api\Admin\AdminGuestExportController;
 use App\Http\Controllers\Api\Auth\AuthController;
 use App\Http\Controllers\Api\Auth\SupabaseConfirmationController;
+use App\Http\Controllers\Api\GoApiProxyController;
 use App\Http\Controllers\Api\InviteController;
 use App\Http\Controllers\Api\Public\PublicEventController;
 use App\Http\Controllers\Api\Public\PublicRsvpCodeController;
@@ -19,6 +20,9 @@ Route::prefix('v1')->middleware(['throttle:api', 'tenant.optional'])->group(func
     Route::post('/auth/resend-email-code', [AuthController::class, 'resendEmailCode'])->middleware('throttle:login');
     Route::post('/auth/verify-email-code', [AuthController::class, 'verifyEmailCode'])->middleware('throttle:login');
     Route::post('/auth/resend-confirmation', [SupabaseConfirmationController::class, 'resend'])->middleware('throttle:auth-email');
+
+    Route::match(['get', 'post'], '/go/{path?}', GoApiProxyController::class)
+        ->where('path', '.*');
 
     // Public invite endpoints
     Route::get('/invites/{token}', [InviteController::class, 'show']);

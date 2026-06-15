@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: convitefaculdade-laravel
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
+    healthCheckPath: /up
+    envVars:
+      - key: APP_NAME
+        value: Invitely
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_KEY
+        generateValue: true
+      - key: APP_URL
+        sync: false
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: LOG_LEVEL
+        value: info
+      - key: CACHE_STORE
+        value: array
+      - key: SESSION_DRIVER
+        value: cookie
+      - key: QUEUE_CONNECTION
+        value: sync
+      - key: RUN_MIGRATIONS
+        value: "false"
+      - key: RUN_SEEDERS
+        value: "false"
+      - key: GO_API_URL
+        sync: false
+      - key: GO_API_TIMEOUT
+        value: "10"
+      - key: GO_API_INTERNAL_KEY
+        sync: false

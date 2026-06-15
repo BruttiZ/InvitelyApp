@@ -4,10 +4,12 @@ import { AlertTriangle, ArrowLeft, Calendar, CheckCircle2, Clock, Loader2, MapPi
 import type { ReactNode } from 'react';
 import { SyntheticEvent, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl } from '../../../lib/api';
+import { apiV1Url, authHeaders } from '../../../lib/api';
 import { getStoredSession } from '../../auth/session';
 
 export type CreatedEventSummary = {
+    id: string;
+    slug: string;
     title: string;
     date: string;
     place: string;
@@ -32,7 +34,10 @@ type CreateEventResponse = {
     data?: {
         id?: string | number;
         title?: string;
+        slug?: string;
         starts_at?: string;
+        ends_at?: string;
+        status?: string;
         location?: string;
     };
 };
@@ -74,6 +79,8 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
 
     const preview = useMemo<CreatedEventSummary>(
         () => ({
+            id: 'preview',
+            slug: form.slug.trim() || eventSlug(form.name),
             title: form.name.trim() || 'Novo evento',
             date: form.startsAt ? formatEventDate(form.startsAt) : 'Data a definir',
             place: form.venueName.trim() || 'Local a definir',
@@ -82,7 +89,7 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
             rsvp: 0,
             image: defaultImage,
         }),
-        [form.name, form.startsAt, form.venueName],
+        [form.name, form.slug, form.startsAt, form.venueName],
     );
 
     const createEvent = useMutation<CreateEventResult>({
@@ -102,36 +109,41 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
                 throw new Error('URL do evento e obrigatoria.');
             }
 
-            const createdEvent: CreatedEventSummary = preview;
-            const payload: Record<string, string> = {
-                title: form.name.trim(),
-                description: 'Descricao do evento',
-                starts_at: new Date(form.startsAt).toISOString(),
-                location: [form.venueName.trim(), form.address.trim()].filter(Boolean).join(' - '),
-            };
-
-            if (form.endsAt) {
-                payload.ends_at = new Date(form.endsAt).toISOString();
-            }
-
             if (!session?.token || session.token.startsWith('demo-') || session.token.startsWith('super-user-token-')) {
                 throw new Error('Entre com uma conta autorizada para criar eventos.');
             }
 
+            const slug = form.slug.trim() || eventSlug(form.name);
+            const venueName = form.venueName.trim();
+            const address = form.address.trim();
+            const createdEvent: CreatedEventSummary = {
+                ...preview,
+                slug,
+            };
+            const payload: {
+                title: string;
+                description: string;
+                starts_at: string;
+                ends_at: string;
+                location: string;
+            } = {
+                title: form.name.trim(),
+                description: 'Convite digital criado pelo Invitely.',
+                starts_at: new Date(form.startsAt).toISOString(),
+                ends_at: new Date(form.endsAt || form.startsAt).toISOString(),
+                location: [venueName, address].filter(Boolean).join(' - ') || 'Local a definir',
+            };
+
             let response: Response;
 
             try {
-                response = await fetch(apiUrl('/events'), {
+                response = await fetch(apiV1Url('/go/events'), {
                     method: 'POST',
-                    headers: {
-                        Accept: 'application/json',
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${session.token}`,
-                    },
+                    headers: authHeaders(session.token),
                     body: JSON.stringify(payload),
                 });
             } catch {
-                throw new Error('Nao foi possivel conectar na API de eventos. Verifique VITE_API_URL.');
+                throw new Error('Nao foi possivel conectar na API Go. Verifique VITE_API_URL.');
             }
 
             if (!response.ok) {
@@ -155,13 +167,15 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
             const apiEvent = data.data;
             const eventFromApi: CreatedEventSummary = {
                 ...createdEvent,
+                id: String(apiEvent?.id ?? Date.now()),
+                slug: apiEvent?.slug ?? createdEvent.slug,
                 title: apiEvent?.title ?? createdEvent.title,
                 date: apiEvent?.starts_at ? formatEventDate(apiEvent.starts_at) : createdEvent.date,
                 place: apiEvent?.location ?? createdEvent.place,
-                status: 'Publicado',
+                status: apiEvent?.status === 'published' ? 'Publicado' : 'Salvo',
             };
 
-            return { id: String(apiEvent?.id ?? Date.now()), event: eventFromApi };
+            return { id: eventFromApi.id, event: eventFromApi };
         },
         onSuccess: (result) => {
             setSuccess('Evento criado com sucesso.');

@@ -27,9 +27,11 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AuthUser, UserRole, clearSession, getStoredSession, roleLabel } from '../../auth/session';
+import { apiV1Url, authHeaders } from '../../../lib/api';
 import { envString } from '../../../lib/env';
 import { CreateEventForm, CreatedEventSummary } from './CreateEventForm';
 
@@ -85,6 +87,19 @@ type MetricItem = {
     color: string;
 };
 
+type AdminEventResource = {
+    id: string | number;
+    title: string;
+    slug?: string;
+    status?: string;
+    starts_at: string;
+    location?: string;
+};
+
+type PaginatedEventResponse = {
+    data?: AdminEventResource[];
+};
+
 const destinations: Record<UserRole, string> = {
     owner: '/organizador',
     guest: '/convidado',
@@ -122,6 +137,8 @@ const profileCopy: Record<
 
 const initialEventCards: CreatedEventSummary[] = [
     {
+        id: 'demo-invitely-launch-night',
+        slug: 'invitely-launch-night',
         title: 'Invitely Launch Night',
         date: '23 jul 2026 - 19:00',
         place: 'Atelier Vista',
@@ -131,6 +148,8 @@ const initialEventCards: CreatedEventSummary[] = [
         image: 'https://images.unsplash.com/photo-1519167758481-83f550bb49b3?auto=format&fit=crop&w=900&q=80',
     },
     {
+        id: 'demo-founders-dinner',
+        slug: 'founders-dinner',
         title: 'Founders Dinner',
         date: '05 ago 2026 - 20:00',
         place: 'Rascunho',
@@ -140,6 +159,8 @@ const initialEventCards: CreatedEventSummary[] = [
         image: 'https://images.unsplash.com/photo-1528605248644-14dd04022da1?auto=format&fit=crop&w=900&q=80',
     },
     {
+        id: 'demo-aurora-summit',
+        slug: 'aurora-summit',
         title: 'Aurora Summit',
         date: '12 set 2026 - 08:00',
         place: 'Centro de Convencoes',
@@ -149,6 +170,30 @@ const initialEventCards: CreatedEventSummary[] = [
         image: 'https://images.unsplash.com/photo-1505373877841-8d25f7d46678?auto=format&fit=crop&w=900&q=80',
     },
 ];
+
+function mapEventResource(event: AdminEventResource): CreatedEventSummary {
+    return {
+        id: String(event.id),
+        slug: event.slug ?? String(event.id),
+        title: event.title,
+        date: formatEventDate(event.starts_at),
+        place: event.location ?? 'Local a definir',
+        status: event.status === 'published' ? 'Publicado' : 'Salvo',
+        confirmed: 0,
+        rsvp: 0,
+        image: 'https://images.unsplash.com/photo-1519167758481-83f550bb49b3?auto=format&fit=crop&w=900&q=80',
+    };
+}
+
+function formatEventDate(value: string): string {
+    return new Intl.DateTimeFormat('pt-BR', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    }).format(new Date(value));
+}
 
 const guests: GuestRow[] = [
     {
@@ -308,13 +353,38 @@ export function AdminDashboard() {
     const [view, setView] = useState<DashboardView>('overview');
     const [isCreatingEvent, setIsCreatingEvent] = useState(false);
     const [isSendingReminder, setIsSendingReminder] = useState(false);
-    const [events, setEvents] = useState<CreatedEventSummary[]>(initialEventCards);
+    const [createdEvents, setCreatedEvents] = useState<CreatedEventSummary[]>([]);
     const [activeTemplate, setActiveTemplate] = useState<TemplateOption>(defaultTemplate);
     const [toast, setToast] = useState('Dashboard carregado. Explore os modulos do produto.');
 
     const expectedRole = expectedRoleForPath(location.pathname);
     const navigation = useMemo(() => (user ? navigationFor(user) : []), [user]);
     const actions = useMemo(() => (user ? actionsFor(user) : []), [user]);
+    const shouldLoadAdminEvents = user?.role === 'owner' && Boolean(session?.token);
+    const eventsQuery = useQuery({
+        queryKey: ['admin-events', session?.user.id],
+        enabled: shouldLoadAdminEvents,
+        queryFn: async () => {
+            if (!session?.token) {
+                throw new Error('Sessao expirada. Faca login novamente.');
+            }
+
+            const response = await fetch(apiV1Url('/go/events'), {
+                headers: authHeaders(session.token),
+            });
+            const payload = (await response.json().catch(() => ({}))) as PaginatedEventResponse & {
+                message?: string;
+            };
+
+            if (!response.ok) {
+                throw new Error(payload.message ?? 'Nao foi possivel carregar eventos salvos.');
+            }
+
+            return (payload.data ?? []).map(mapEventResource);
+        },
+    });
+
+    const events = useMemo(() => [...createdEvents, ...(eventsQuery.data ?? [])], [createdEvents, eventsQuery.data]);
 
     if (!session || !user) {
         return <Navigate to="/login" replace />;
@@ -456,7 +526,7 @@ export function AdminDashboard() {
                                     notify('Criacao de evento cancelada.');
                                 }}
                                 onCreated={(event) => {
-                                    setEvents((current) => [event, ...current]);
+                                    setCreatedEvents((current) => [event, ...current]);
                                     setIsCreatingEvent(false);
                                     notify(`${event.title} criado e adicionado ao painel.`);
                                 }}
@@ -479,6 +549,8 @@ export function AdminDashboard() {
                             view={view}
                             notify={notify}
                             events={events}
+                            isLoadingEvents={eventsQuery.isLoading}
+                            eventsError={eventsQuery.error?.message}
                             activeTemplate={activeTemplate}
                             onApplyTemplate={setActiveTemplate}
                         />
@@ -494,6 +566,8 @@ function DashboardContent({
     view,
     notify,
     events,
+    isLoadingEvents,
+    eventsError,
     activeTemplate,
     onApplyTemplate,
 }: {
@@ -501,6 +575,8 @@ function DashboardContent({
     view: DashboardView;
     notify: (message: string) => void;
     events: CreatedEventSummary[];
+    isLoadingEvents: boolean;
+    eventsError?: string;
     activeTemplate: TemplateOption;
     onApplyTemplate: (template: TemplateOption) => void;
 }) {
@@ -509,7 +585,15 @@ function DashboardContent({
     }
 
     if (view === 'events') {
-        return <EventsView role={role} notify={notify} events={events} />;
+        return (
+            <EventsView
+                role={role}
+                notify={notify}
+                events={role === 'owner' ? events : initialEventCards}
+                isLoading={isLoadingEvents}
+                error={eventsError}
+            />
+        );
     }
 
     if (view === 'guests') {
@@ -669,16 +753,49 @@ function EventsView({
     role,
     notify,
     events,
+    isLoading,
+    error,
 }: {
     role: UserRole;
     notify: (message: string) => void;
     events: CreatedEventSummary[];
+    isLoading: boolean;
+    error?: string;
 }) {
+    if (isLoading) {
+        return (
+            <Panel title="Eventos" className="mt-6">
+                <div className="flex items-center gap-3 text-sm text-[#CBD5E1]">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#22D3EE]/30 border-t-[#22D3EE]" />
+                    Carregando eventos salvos na API Go...
+                </div>
+            </Panel>
+        );
+    }
+
+    if (error) {
+        return (
+            <Panel title="Eventos" className="mt-6">
+                <p className="text-sm text-[#FCA5A5]">{error}</p>
+            </Panel>
+        );
+    }
+
+    if (events.length === 0) {
+        return (
+            <Panel title="Eventos" className="mt-6">
+                <p className="text-sm leading-6 text-[#94A3B8]">
+                    Nenhum evento salvo ainda. Use Criar evento para gravar o primeiro convite no banco.
+                </p>
+            </Panel>
+        );
+    }
+
     return (
         <section className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {events.map((event) => (
                 <motion.article
-                    key={event.title}
+                    key={event.id}
                     whileHover={{ y: -6 }}
                     className="overflow-hidden rounded-3xl border border-[#263247] bg-[#121827] shadow-xl"
                 >
