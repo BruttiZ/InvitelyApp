@@ -5,6 +5,7 @@ import {
     Bell,
     CalendarDays,
     CheckCircle2,
+    ClipboardList,
     Crown,
     Download,
     Gift,
@@ -22,6 +23,7 @@ import {
     ShieldCheck,
     Sparkles,
     TicketCheck,
+    Trash2,
     UsersRound,
     Wand2,
 } from 'lucide-react';
@@ -41,6 +43,7 @@ type DashboardView =
     | 'guests'
     | 'templates'
     | 'checkin'
+    | 'budget'
     | 'platform'
     | 'tenants'
     | 'support'
@@ -85,6 +88,21 @@ type MetricItem = {
     trend: string;
     icon: LucideIcon;
     color: string;
+};
+
+type BudgetItem = {
+    id: string;
+    category: string;
+    description: string;
+    amount: number;
+};
+
+type GiftWish = {
+    id: string;
+    name: string;
+    type: string;
+    targetValue: number;
+    priority: string;
 };
 
 type AdminEventResource = {
@@ -258,6 +276,36 @@ const tenants = [
     { name: 'Mira Eventos', plan: 'business', events: '104', status: 'Atencao' },
 ];
 
+const defaultBudgetItems: BudgetItem[] = [
+    { id: 'buffet', category: 'Buffet', description: 'Comidas, bebidas e equipe de servico', amount: 8500 },
+    { id: 'aluguel', category: 'Aluguel', description: 'Espaco do evento', amount: 4200 },
+    { id: 'decoracao', category: 'Decoracao', description: 'Flores, mobiliario e ambientacao', amount: 2800 },
+    { id: 'som-luz', category: 'Som e luz', description: 'DJ, iluminacao e estrutura tecnica', amount: 2300 },
+];
+
+const defaultGiftWishes: GiftWish[] = [
+    { id: 'pix', name: 'Cota Pix dos anfitrioes', type: 'Dinheiro', targetValue: 5000, priority: 'Alta' },
+    { id: 'vinhos', name: 'Adega inicial', type: 'Casa', targetValue: 1200, priority: 'Media' },
+];
+
+function readStoredArray<T>(key: string, fallback: T[]): T[] {
+    const raw = window.localStorage.getItem(key);
+
+    if (!raw) {
+        return fallback;
+    }
+
+    try {
+        return JSON.parse(raw) as T[];
+    } catch {
+        return fallback;
+    }
+}
+
+function writeStoredArray(key: string, value: unknown[]): void {
+    window.localStorage.setItem(key, JSON.stringify(value));
+}
+
 function navigationFor(user: AuthUser): NavigationItem[] {
     if (user.role === 'platform_admin') {
         return [
@@ -284,6 +332,8 @@ function navigationFor(user: AuthUser): NavigationItem[] {
         { label: 'Resumo', view: 'overview', icon: BarChart3 },
         { label: 'Eventos', view: 'events', icon: CalendarDays },
         { label: 'Convidados', view: 'guests', icon: UsersRound },
+        { label: 'Orcamento', view: 'budget', icon: ClipboardList },
+        { label: 'Presentes', view: 'gifts', icon: Gift },
         { label: 'Templates', view: 'templates', icon: ImagePlus },
         { label: 'Check-in', view: 'checkin', icon: QrCode },
         { label: 'Ajustes', view: 'settings', icon: Settings2 },
@@ -354,6 +404,18 @@ export function AdminDashboard() {
     const [isCreatingEvent, setIsCreatingEvent] = useState(false);
     const [isSendingReminder, setIsSendingReminder] = useState(false);
     const [createdEvents, setCreatedEvents] = useState<CreatedEventSummary[]>([]);
+    const [eventOverrides, setEventOverrides] = useState<CreatedEventSummary[]>(() =>
+        readStoredArray('invitely.eventOverrides', []),
+    );
+    const [deletedEventIds, setDeletedEventIds] = useState<string[]>(() =>
+        readStoredArray('invitely.deletedEventIds', []),
+    );
+    const [budgetItems, setBudgetItems] = useState<BudgetItem[]>(() =>
+        readStoredArray('invitely.budgetItems', defaultBudgetItems),
+    );
+    const [giftWishes, setGiftWishes] = useState<GiftWish[]>(() =>
+        readStoredArray('invitely.giftWishes', defaultGiftWishes),
+    );
     const [activeTemplate, setActiveTemplate] = useState<TemplateOption>(defaultTemplate);
     const [toast, setToast] = useState('Dashboard carregado. Explore os modulos do produto.');
 
@@ -384,7 +446,13 @@ export function AdminDashboard() {
         },
     });
 
-    const events = useMemo(() => [...createdEvents, ...(eventsQuery.data ?? [])], [createdEvents, eventsQuery.data]);
+    const events = useMemo(() => {
+        const overrides = new Map(eventOverrides.map((event) => [event.id, event]));
+
+        return [...createdEvents, ...(eventsQuery.data ?? [])]
+            .filter((event) => !deletedEventIds.includes(event.id))
+            .map((event) => overrides.get(event.id) ?? event);
+    }, [createdEvents, deletedEventIds, eventOverrides, eventsQuery.data]);
 
     if (!session || !user) {
         return <Navigate to="/login" replace />;
@@ -551,6 +619,38 @@ export function AdminDashboard() {
                             events={events}
                             isLoadingEvents={eventsQuery.isLoading}
                             eventsError={eventsQuery.error?.message}
+                            budgetItems={budgetItems}
+                            giftWishes={giftWishes}
+                            onUpdateEvent={(event) => {
+                                setCreatedEvents((current) =>
+                                    current.map((item) => (item.id === event.id ? event : item)),
+                                );
+                                setEventOverrides((current) => {
+                                    const next = [event, ...current.filter((item) => item.id !== event.id)];
+                                    writeStoredArray('invitely.eventOverrides', next);
+
+                                    return next;
+                                });
+                                notify(`${event.title} atualizado no painel.`);
+                            }}
+                            onDeleteEvent={(eventId) => {
+                                setCreatedEvents((current) => current.filter((event) => event.id !== eventId));
+                                setDeletedEventIds((current) => {
+                                    const next = current.includes(eventId) ? current : [...current, eventId];
+                                    writeStoredArray('invitely.deletedEventIds', next);
+
+                                    return next;
+                                });
+                                notify('Evento removido do painel.');
+                            }}
+                            onBudgetChange={(items) => {
+                                setBudgetItems(items);
+                                writeStoredArray('invitely.budgetItems', items);
+                            }}
+                            onGiftWishesChange={(items) => {
+                                setGiftWishes(items);
+                                writeStoredArray('invitely.giftWishes', items);
+                            }}
                             activeTemplate={activeTemplate}
                             onApplyTemplate={setActiveTemplate}
                         />
@@ -568,6 +668,12 @@ function DashboardContent({
     events,
     isLoadingEvents,
     eventsError,
+    budgetItems,
+    giftWishes,
+    onUpdateEvent,
+    onDeleteEvent,
+    onBudgetChange,
+    onGiftWishesChange,
     activeTemplate,
     onApplyTemplate,
 }: {
@@ -577,6 +683,12 @@ function DashboardContent({
     events: CreatedEventSummary[];
     isLoadingEvents: boolean;
     eventsError?: string;
+    budgetItems: BudgetItem[];
+    giftWishes: GiftWish[];
+    onUpdateEvent: (event: CreatedEventSummary) => void;
+    onDeleteEvent: (eventId: string) => void;
+    onBudgetChange: (items: BudgetItem[]) => void;
+    onGiftWishesChange: (items: GiftWish[]) => void;
     activeTemplate: TemplateOption;
     onApplyTemplate: (template: TemplateOption) => void;
 }) {
@@ -592,8 +704,14 @@ function DashboardContent({
                 events={role === 'owner' ? events : initialEventCards}
                 isLoading={isLoadingEvents}
                 error={eventsError}
+                onUpdateEvent={onUpdateEvent}
+                onDeleteEvent={onDeleteEvent}
             />
         );
+    }
+
+    if (view === 'budget') {
+        return <BudgetBIView events={events} items={budgetItems} onChange={onBudgetChange} notify={notify} />;
     }
 
     if (view === 'guests') {
@@ -654,7 +772,9 @@ function DashboardContent({
     }
 
     if (view === 'gifts') {
-        return (
+        return role === 'owner' ? (
+            <GiftPlannerView wishes={giftWishes} onChange={onGiftWishesChange} notify={notify} />
+        ) : (
             <CardsModule
                 title="Presentes"
                 icon={Gift}
@@ -755,13 +875,19 @@ function EventsView({
     events,
     isLoading,
     error,
+    onUpdateEvent,
+    onDeleteEvent,
 }: {
     role: UserRole;
     notify: (message: string) => void;
     events: CreatedEventSummary[];
     isLoading: boolean;
     error?: string;
+    onUpdateEvent: (event: CreatedEventSummary) => void;
+    onDeleteEvent: (eventId: string) => void;
 }) {
+    const [editingEvent, setEditingEvent] = useState<CreatedEventSummary | null>(null);
+
     if (isLoading) {
         return (
             <Panel title="Eventos" className="mt-6">
@@ -819,14 +945,363 @@ function EventsView({
                         <ActionButton
                             className="mt-5 w-full"
                             onClick={() => {
-                                notify(`${event.title} selecionado.`);
+                                setEditingEvent(event);
+                                notify(`${event.title} aberto para edicao.`);
                             }}
                         >
                             Gerenciar evento
                         </ActionButton>
+                        {role === 'owner' ? (
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                                <ActionButton
+                                    variant="secondary"
+                                    onClick={() => {
+                                        setEditingEvent(event);
+                                    }}
+                                >
+                                    Editar
+                                </ActionButton>
+                                <ActionButton
+                                    variant="danger"
+                                    onClick={() => {
+                                        if (window.confirm(`Remover ${event.title} do painel?`)) {
+                                            onDeleteEvent(event.id);
+                                        }
+                                    }}
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                    Deletar
+                                </ActionButton>
+                            </div>
+                        ) : null}
                     </div>
                 </motion.article>
             ))}
+            {editingEvent ? (
+                <EventEditPanel
+                    event={editingEvent}
+                    onCancel={() => {
+                        setEditingEvent(null);
+                    }}
+                    onSave={(event) => {
+                        onUpdateEvent(event);
+                        setEditingEvent(null);
+                    }}
+                />
+            ) : null}
+        </section>
+    );
+}
+
+function EventEditPanel({
+    event,
+    onCancel,
+    onSave,
+}: {
+    event: CreatedEventSummary;
+    onCancel: () => void;
+    onSave: (event: CreatedEventSummary) => void;
+}) {
+    const [draft, setDraft] = useState(event);
+
+    return (
+        <motion.aside
+            initial={false}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-3xl border border-[#22D3EE]/40 bg-[#0B0F1A] p-5 shadow-2xl md:col-span-2 xl:col-span-3"
+        >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                    <p className="text-sm font-semibold text-[#22D3EE]">Edicao rapida</p>
+                    <h2 className="mt-1 text-xl font-bold">{event.title}</h2>
+                    <p className="mt-2 text-sm text-[#94A3B8]">
+                        Ajustes salvos no painel. Quando a API Go expuser edicao, este fluxo pode gravar no backend.
+                    </p>
+                </div>
+                <div className="flex gap-2">
+                    <ActionButton variant="secondary" onClick={onCancel}>
+                        Cancelar
+                    </ActionButton>
+                    <ActionButton
+                        onClick={() => {
+                            onSave(draft);
+                        }}
+                    >
+                        Salvar
+                    </ActionButton>
+                </div>
+            </div>
+            <div className="mt-5 grid gap-4 md:grid-cols-3">
+                <label>
+                    <span className="mb-2 block text-sm text-[#CBD5E1]">Nome</span>
+                    <input
+                        value={draft.title}
+                        onChange={(input) => {
+                            setDraft((current) => ({ ...current, title: input.target.value }));
+                        }}
+                        className="field-control"
+                    />
+                </label>
+                <label>
+                    <span className="mb-2 block text-sm text-[#CBD5E1]">Local</span>
+                    <input
+                        value={draft.place}
+                        onChange={(input) => {
+                            setDraft((current) => ({ ...current, place: input.target.value }));
+                        }}
+                        className="field-control"
+                    />
+                </label>
+                <label>
+                    <span className="mb-2 block text-sm text-[#CBD5E1]">Status</span>
+                    <select
+                        value={draft.status}
+                        onChange={(input) => {
+                            setDraft((current) => ({ ...current, status: input.target.value }));
+                        }}
+                        className="field-control"
+                    >
+                        <option>Salvo</option>
+                        <option>Rascunho</option>
+                        <option>Publicado</option>
+                        <option>Encerrado</option>
+                    </select>
+                </label>
+            </div>
+        </motion.aside>
+    );
+}
+
+function BudgetBIView({
+    events,
+    items,
+    onChange,
+    notify,
+}: {
+    events: CreatedEventSummary[];
+    items: BudgetItem[];
+    onChange: (items: BudgetItem[]) => void;
+    notify: (message: string) => void;
+}) {
+    const [draft, setDraft] = useState({ category: '', description: '', amount: '' });
+    const total = items.reduce((sum, item) => sum + item.amount, 0);
+    const confirmed = events.reduce((sum, event) => sum + event.confirmed, 0);
+    const expectedGuests = Math.max(confirmed, events.length * 80, 1);
+    const contingency = total * 0.12;
+    const estimatedTotal = total + contingency;
+
+    function addItem() {
+        const amount = Number(draft.amount);
+
+        if (!draft.category.trim() || Number.isNaN(amount) || amount <= 0) {
+            return;
+        }
+
+        onChange([
+            ...items,
+            {
+                id: `budget-${Date.now().toString()}`,
+                category: draft.category.trim(),
+                description: draft.description.trim() || 'Item do orcamento',
+                amount,
+            },
+        ]);
+        setDraft({ category: '', description: '', amount: '' });
+        notify('Item adicionado ao BI de custos.');
+    }
+
+    function removeItem(id: string) {
+        onChange(items.filter((item) => item.id !== id));
+        notify('Item removido do orcamento.');
+    }
+
+    return (
+        <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="grid gap-5">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <MetricPill label="Custo base" value={formatCurrency(total)} />
+                    <MetricPill label="Reserva 12%" value={formatCurrency(contingency)} />
+                    <MetricPill label="Estimativa total" value={formatCurrency(estimatedTotal)} />
+                    <MetricPill label="Por convidado" value={formatCurrency(estimatedTotal / expectedGuests)} />
+                </div>
+
+                <Panel title="Custos planejados">
+                    <div className="grid gap-3">
+                        {items.map((item) => (
+                            <div
+                                key={item.id}
+                                className="grid gap-3 rounded-2xl border border-[#263247] bg-[#0B0F1A] p-4 md:grid-cols-[1fr_auto_auto] md:items-center"
+                            >
+                                <div>
+                                    <p className="font-semibold">{item.category}</p>
+                                    <p className="mt-1 text-sm text-[#94A3B8]">{item.description}</p>
+                                </div>
+                                <strong>{formatCurrency(item.amount)}</strong>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        removeItem(item.id);
+                                    }}
+                                    className="inline-flex h-10 items-center justify-center rounded-xl border border-[#EF4444]/40 px-3 text-sm text-[#FCA5A5]"
+                                >
+                                    Remover
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </Panel>
+            </div>
+
+            <aside className="rounded-3xl border border-[#263247] bg-[#0B0F1A]/90 p-5 shadow-2xl">
+                <ClipboardList className="h-6 w-6 text-[#22D3EE]" />
+                <h3 className="mt-4 text-xl font-bold">Adicionar custo</h3>
+                <div className="mt-5 grid gap-3">
+                    <input
+                        placeholder="Buffet, aluguel, decoracao..."
+                        value={draft.category}
+                        onChange={(event) => {
+                            setDraft((current) => ({ ...current, category: event.target.value }));
+                        }}
+                        className="field-control"
+                    />
+                    <input
+                        placeholder="Descricao"
+                        value={draft.description}
+                        onChange={(event) => {
+                            setDraft((current) => ({ ...current, description: event.target.value }));
+                        }}
+                        className="field-control"
+                    />
+                    <input
+                        type="number"
+                        min="0"
+                        placeholder="Valor estimado"
+                        value={draft.amount}
+                        onChange={(event) => {
+                            setDraft((current) => ({ ...current, amount: event.target.value }));
+                        }}
+                        className="field-control"
+                    />
+                    <ActionButton onClick={addItem}>Adicionar ao BI</ActionButton>
+                </div>
+            </aside>
+        </section>
+    );
+}
+
+function GiftPlannerView({
+    wishes,
+    onChange,
+    notify,
+}: {
+    wishes: GiftWish[];
+    onChange: (items: GiftWish[]) => void;
+    notify: (message: string) => void;
+}) {
+    const [draft, setDraft] = useState({ name: '', type: 'Casa', targetValue: '', priority: 'Media' });
+    const total = wishes.reduce((sum, item) => sum + item.targetValue, 0);
+
+    function addWish() {
+        const targetValue = Number(draft.targetValue);
+
+        if (!draft.name.trim() || Number.isNaN(targetValue) || targetValue < 0) {
+            return;
+        }
+
+        onChange([
+            ...wishes,
+            {
+                id: `gift-${Date.now().toString()}`,
+                name: draft.name.trim(),
+                type: draft.type,
+                targetValue,
+                priority: draft.priority,
+            },
+        ]);
+        setDraft({ name: '', type: 'Casa', targetValue: '', priority: 'Media' });
+        notify('Presente adicionado a lista.');
+    }
+
+    return (
+        <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <Panel title="Lista de presentes desejados">
+                <div className="grid gap-3">
+                    {wishes.map((wish) => (
+                        <div
+                            key={wish.id}
+                            className="grid gap-3 rounded-2xl border border-[#263247] bg-[#0B0F1A] p-4 md:grid-cols-[1fr_auto_auto] md:items-center"
+                        >
+                            <div>
+                                <p className="font-semibold">{wish.name}</p>
+                                <p className="mt-1 text-sm text-[#94A3B8]">
+                                    {wish.type} - prioridade {wish.priority}
+                                </p>
+                            </div>
+                            <strong>{formatCurrency(wish.targetValue)}</strong>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    onChange(wishes.filter((item) => item.id !== wish.id));
+                                    notify('Presente removido da lista.');
+                                }}
+                                className="inline-flex h-10 items-center justify-center rounded-xl border border-[#EF4444]/40 px-3 text-sm text-[#FCA5A5]"
+                            >
+                                Remover
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            </Panel>
+
+            <aside className="rounded-3xl border border-[#263247] bg-[#0B0F1A]/90 p-5 shadow-2xl">
+                <Gift className="h-6 w-6 text-[#A78BFA]" />
+                <h3 className="mt-4 text-xl font-bold">Novo presente</h3>
+                <p className="mt-2 text-sm text-[#94A3B8]">Meta total: {formatCurrency(total)}</p>
+                <div className="mt-5 grid gap-3">
+                    <input
+                        placeholder="Ex: Cota lua de mel"
+                        value={draft.name}
+                        onChange={(event) => {
+                            setDraft((current) => ({ ...current, name: event.target.value }));
+                        }}
+                        className="field-control"
+                    />
+                    <select
+                        value={draft.type}
+                        onChange={(event) => {
+                            setDraft((current) => ({ ...current, type: event.target.value }));
+                        }}
+                        className="field-control"
+                    >
+                        <option>Casa</option>
+                        <option>Dinheiro</option>
+                        <option>Experiencia</option>
+                        <option>Evento</option>
+                    </select>
+                    <select
+                        value={draft.priority}
+                        onChange={(event) => {
+                            setDraft((current) => ({ ...current, priority: event.target.value }));
+                        }}
+                        className="field-control"
+                    >
+                        <option>Alta</option>
+                        <option>Media</option>
+                        <option>Baixa</option>
+                    </select>
+                    <input
+                        type="number"
+                        min="0"
+                        placeholder="Valor desejado"
+                        value={draft.targetValue}
+                        onChange={(event) => {
+                            setDraft((current) => ({ ...current, targetValue: event.target.value }));
+                        }}
+                        className="field-control"
+                    />
+                    <ActionButton onClick={addWish}>Adicionar presente</ActionButton>
+                </div>
+            </aside>
         </section>
     );
 }
@@ -1347,19 +1822,17 @@ function ActionButton({
 }: {
     children: ReactNode;
     onClick?: () => void;
-    variant?: 'primary' | 'secondary';
+    variant?: 'primary' | 'secondary' | 'danger';
     className?: string;
 }) {
+    const classes = {
+        primary: `inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#0EA5E9] px-4 text-sm font-bold text-white transition hover:scale-[1.03] ${className}`,
+        secondary: `inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#263247] bg-[#121827] px-4 text-sm font-bold text-white transition hover:scale-[1.03] ${className}`,
+        danger: `inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 px-4 text-sm font-bold text-[#FCA5A5] transition hover:scale-[1.03] ${className}`,
+    };
+
     return (
-        <button
-            type="button"
-            onClick={onClick}
-            className={
-                variant === 'primary'
-                    ? `inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#0EA5E9] px-4 text-sm font-bold text-white transition hover:scale-[1.03] ${className}`
-                    : `inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#263247] bg-[#121827] px-4 text-sm font-bold text-white transition hover:scale-[1.03] ${className}`
-            }
-        >
+        <button type="button" onClick={onClick} className={classes[variant]}>
             {children}
         </button>
     );
@@ -1397,4 +1870,12 @@ function MetricPill({ label, value }: { label: string; value: string }) {
             <p className="mt-1 text-lg font-bold">{value}</p>
         </div>
     );
+}
+
+function formatCurrency(value: number): string {
+    return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+        maximumFractionDigits: 0,
+    }).format(value);
 }
