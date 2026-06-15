@@ -14,15 +14,17 @@ use App\Http\Controllers\Api\Public\PublicRsvpCodeController;
 use App\Http\Controllers\Api\Public\PublicRsvpController;
 use Illuminate\Support\Facades\Route;
 
+Route::prefix('v1')->middleware(['throttle:api'])->group(function (): void {
+    Route::match(['get', 'post'], '/go/{path?}', GoApiProxyController::class)
+        ->where('path', '.*');
+});
+
 Route::prefix('v1')->middleware(['throttle:api', 'tenant.optional'])->group(function (): void {
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
     Route::post('/auth/register', [AuthController::class, 'register'])->middleware('throttle:login');
     Route::post('/auth/resend-email-code', [AuthController::class, 'resendEmailCode'])->middleware('throttle:login');
     Route::post('/auth/verify-email-code', [AuthController::class, 'verifyEmailCode'])->middleware('throttle:login');
     Route::post('/auth/resend-confirmation', [SupabaseConfirmationController::class, 'resend'])->middleware('throttle:auth-email');
-
-    Route::match(['get', 'post'], '/go/{path?}', GoApiProxyController::class)
-        ->where('path', '.*');
 
     // Public invite endpoints
     Route::get('/invites/{token}', [InviteController::class, 'show']);
