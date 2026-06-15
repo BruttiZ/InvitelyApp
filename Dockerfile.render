@@ -6,8 +6,8 @@ RUN npm install
 COPY resources ./resources
 COPY lib ./lib
 COPY public ./public
-COPY components.json index.html package.json tsconfig.json vite.vercel.config.js ./
-RUN npm run build:vercel
+COPY components.json index.html package.json tsconfig.json vite.config.js vite.vercel.config.js ./
+RUN npm run build:laravel
 
 FROM php:8.4-cli-alpine AS app
 
@@ -36,7 +36,7 @@ COPY composer.json composer.lock ./
 RUN composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev --no-scripts
 
 COPY . .
-COPY --from=frontend /app/dist ./public
+COPY --from=frontend /app/public/build ./public/build
 
 RUN rm -f bootstrap/cache/*.php \
     && composer dump-autoload --optimize \
