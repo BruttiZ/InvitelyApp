@@ -45,6 +45,7 @@ it('forwards write requests for events budget and gifts', function (): void {
     Http::fake([
         'go-api.test/events/evt_123' => Http::response(['data' => ['id' => 'evt_123', 'title' => 'Atualizado']]),
         'go-api.test/events/evt_123/budget' => Http::response(['data' => ['id' => 'bud_123']], 201),
+        'go-api.test/events/evt_123/reminders' => Http::response(['data' => ['queued' => 2, 'status' => 'sent']], 202),
         'go-api.test/gifts/gft_123' => Http::response('', 204),
     ]);
 
@@ -67,6 +68,16 @@ it('forwards write requests for events budget and gifts', function (): void {
             'paid' => false,
         ])
         ->assertCreated();
+
+    $this->withHeader('Authorization', 'Bearer token-123')
+        ->postJson('/api/v1/go/events/evt_123/reminders', [
+            'from_email' => 'organizador@example.com',
+            'recipients' => ['convidado1@example.com', 'convidado2@example.com'],
+            'subject' => 'Lembrete',
+            'message' => 'Confirme sua presenca.',
+        ])
+        ->assertAccepted()
+        ->assertJsonPath('data.queued', 2);
 
     $this->withHeader('Authorization', 'Bearer token-123')
         ->deleteJson('/api/v1/go/gifts/gft_123')

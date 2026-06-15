@@ -32,6 +32,7 @@ final class GoApiProxyController extends Controller
             'events',
             'events/*/budget',
             'events/*/gifts',
+            'events/*/reminders',
             'guests',
             'rsvp',
         ],

@@ -826,6 +826,7 @@ export function AdminDashboard() {
                             events={events}
                             selectedEventId={activeReminderEventId}
                             organizerEmail={user.email}
+                            token={session.token}
                             guests={reminderGuests}
                             isLoadingGuests={isLoadingReminderGuests}
                             guestsError={reminderGuestsError}
@@ -1802,6 +1803,7 @@ function ReminderPanel({
     events,
     selectedEventId,
     organizerEmail,
+    token,
     guests,
     isLoadingGuests,
     guestsError,
@@ -1812,6 +1814,7 @@ function ReminderPanel({
     events: CreatedEventSummary[];
     selectedEventId?: string;
     organizerEmail: string;
+    token: string;
     guests: GuestRow[];
     isLoadingGuests: boolean;
     guestsError?: string;
@@ -1832,6 +1835,7 @@ function ReminderPanel({
         'Oi! Passando para lembrar voce de confirmar presenca. Assim conseguimos organizar tudo com carinho.',
     );
     const [isSending, setIsSending] = useState(false);
+    const [sendError, setSendError] = useState<string | null>(null);
     const reminderGuests = [...guests, ...customRecipients];
     const pendingRecipientEmails = reminderGuests
         .filter((guest) => guest.status === 'Pendente' || guest.status === 'Manual')
@@ -1891,16 +1895,44 @@ function ReminderPanel({
         setCustomEmail('');
     }
 
-    function sendReminder() {
-        if (!canSend) {
+    async function sendReminder() {
+        if (!canSend || !selectedEventId) {
             return;
         }
 
         setIsSending(true);
-        window.setTimeout(() => {
+        setSendError(null);
+
+        try {
+            const response = await fetch(apiV1Url(`/go/events/${selectedEventId}/reminders`), {
+                method: 'POST',
+                headers: authHeaders(token),
+                body: JSON.stringify({
+                    from_email: fromEmail.trim(),
+                    recipients: selectedEmails,
+                    subject: subject.trim(),
+                    message: message.trim(),
+                }),
+            });
+
+            if (!response.ok) {
+                throw await responseError(response, 'Nao foi possivel enviar os lembretes.');
+            }
+
+            const payload = (await response.json().catch(() => ({}))) as {
+                data?: {
+                    queued?: number;
+                    status?: string;
+                };
+            };
+            const sentCount = payload.data?.queued ?? selectedEmails.length;
+
+            onSent(sentCount);
+        } catch (error: unknown) {
+            setSendError(getErrorMessage(error, 'Nao foi possivel enviar os lembretes.'));
+        } finally {
             setIsSending(false);
-            onSent(selectedEmails.length);
-        }, 700);
+        }
     }
 
     return (
@@ -2082,7 +2114,13 @@ function ReminderPanel({
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#94A3B8]">Assunto</p>
                     <p className="mt-2 text-sm text-white">{subject}</p>
                 </div>
-                <ActionButton className="mt-5 w-full" onClick={sendReminder}>
+                <ActionButton
+                    className="mt-5 w-full"
+                    onClick={() => {
+                        void sendReminder();
+                    }}
+                    disabled={!canSend || isSending}
+                >
                     {isSending ? (
                         <>
                             <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
@@ -2100,6 +2138,7 @@ function ReminderPanel({
                         Selecione um evento, informe um remetente valido e escolha pelo menos um destinatario.
                     </p>
                 ) : null}
+                {sendError ? <p className="mt-3 text-xs leading-5 text-[#FCA5A5]">{sendError}</p> : null}
             </aside>
         </motion.section>
     );
@@ -2404,20 +2443,22 @@ function ActionButton({
     onClick,
     variant = 'primary',
     className = '',
+    disabled = false,
 }: {
     children: ReactNode;
     onClick?: () => void;
     variant?: 'primary' | 'secondary' | 'danger';
     className?: string;
+    disabled?: boolean;
 }) {
     const classes = {
-        primary: `inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#0EA5E9] px-4 text-sm font-bold text-white transition hover:scale-[1.03] ${className}`,
-        secondary: `inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#263247] bg-[#121827] px-4 text-sm font-bold text-white transition hover:scale-[1.03] ${className}`,
-        danger: `inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 px-4 text-sm font-bold text-[#FCA5A5] transition hover:scale-[1.03] ${className}`,
+        primary: `inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#0EA5E9] px-4 text-sm font-bold text-white transition hover:scale-[1.03] disabled:pointer-events-none disabled:opacity-50 ${className}`,
+        secondary: `inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#263247] bg-[#121827] px-4 text-sm font-bold text-white transition hover:scale-[1.03] disabled:pointer-events-none disabled:opacity-50 ${className}`,
+        danger: `inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 px-4 text-sm font-bold text-[#FCA5A5] transition hover:scale-[1.03] disabled:pointer-events-none disabled:opacity-50 ${className}`,
     };
 
     return (
-        <button type="button" onClick={onClick} className={classes[variant]}>
+        <button type="button" onClick={onClick} disabled={disabled} className={classes[variant]}>
             {children}
         </button>
     );
