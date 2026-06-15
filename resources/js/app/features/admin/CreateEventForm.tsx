@@ -150,14 +150,16 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
                     body: JSON.stringify(payload),
                 });
             } catch {
-                throw new Error('Nao foi possivel conectar na API Go. Verifique VITE_API_URL.');
+                throw new Error('Nao foi possivel conectar no backend Laravel. Verifique VITE_API_URL.');
             }
 
             if (!response.ok) {
                 const errorData = (await response.json().catch(() => ({}))) as ApiErrorResponse;
 
                 if (response.status === 404) {
-                    throw new Error('API de eventos nao encontrada. Verifique se VITE_API_URL aponta para a API Go.');
+                    throw new Error(
+                        'API de eventos nao encontrada. VITE_API_URL deve apontar para o Laravel ou ficar vazio na Vercel.',
+                    );
                 }
 
                 const validationMessages =

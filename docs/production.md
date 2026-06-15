@@ -34,7 +34,7 @@ docker compose exec node npm run build
 ## Caminho Vercel com API do projeto
 
 A Vercel publica a SPA React e tambem inclui uma funcao serverless em `api/[...path].js`.
-Essa funcao recebe chamadas como `/api/v1/auth/login` e `/api/v1/admin/events` no mesmo dominio da Vercel e encaminha para o backend Laravel deste repositorio.
+Essa funcao recebe chamadas como `/api/v1/go/auth/login` e `/api/v1/go/events` no mesmo dominio da Vercel e encaminha para o backend Laravel deste repositorio.
 
 Por isso, no deploy Vercel deste repositorio:
 
@@ -75,6 +75,7 @@ NEXT_PUBLIC_SITE_URL=https://seu-projeto.vercel.app
 `LARAVEL_API_URL` e a raiz do backend Laravel, sem `/api` no final. Exemplo correto: `https://api.invitely.com`.
 
 `VITE_API_URL` deve ficar vazio quando voce quiser que o navegador chame `/api/*` no proprio dominio da Vercel e deixe o proxy encaminhar para o Laravel.
+Nao configure `VITE_API_URL` com a URL da API Go (`GO_API_URL`), porque o navegador chamaria `/api/v1/go/...` direto nela e receberia `404`.
 
 `VITE_SITE_URL` e `NEXT_PUBLIC_SITE_URL` documentam a URL publica usada nos links de e-mail. No app Vite, `VITE_SITE_URL` e a variavel lida pelo browser. `NEXT_PUBLIC_SITE_URL` fica disponivel para compatibilidade com uma futura migracao Next.js.
 

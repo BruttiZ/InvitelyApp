@@ -128,7 +128,7 @@ O frontend é organizado por features:
 
 No Docker local, o React é servido pelo build gerado em `public/build` através do Nginx. O service worker é desativado fora de produção para evitar JavaScript antigo em cache.
 
-Para publicar apenas o frontend na Vercel, use `npm run build:vercel`, Output Directory `dist` e configure `VITE_API_URL` apontando para o backend Laravel publicado. Veja [docs/production.md](docs/production.md).
+Para publicar apenas o frontend na Vercel, use `npm run build:vercel`, Output Directory `dist`, configure `LARAVEL_API_URL` apontando para o backend Laravel publicado e deixe `VITE_API_URL` vazio. Veja [docs/production.md](docs/production.md).
 
 ## Roadmap
 
