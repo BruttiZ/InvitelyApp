@@ -92,30 +92,73 @@ type MetricItem = {
 
 type BudgetItem = {
     id: string;
+    eventId?: string;
     category: string;
     description: string;
     amount: number;
+    paid: boolean;
 };
 
 type GiftWish = {
     id: string;
+    eventId?: string;
     name: string;
-    type: string;
-    targetValue: number;
-    priority: string;
+    description: string;
+    price: number;
+    url: string;
+    reserved: boolean;
+    reservedBy: string;
 };
 
 type AdminEventResource = {
     id: string | number;
     title: string;
+    description?: string;
     slug?: string;
     status?: string;
     starts_at: string;
+    ends_at?: string;
     location?: string;
 };
 
 type PaginatedEventResponse = {
     data?: AdminEventResource[];
+};
+
+type BudgetResource = {
+    id: string | number;
+    event_id?: string;
+    category: string;
+    description: string;
+    amount: number | string;
+    paid?: boolean;
+};
+
+type BudgetListResponse = {
+    data?: BudgetResource[];
+};
+
+type BudgetResponse = {
+    data?: BudgetResource;
+};
+
+type GiftResource = {
+    id: string | number;
+    event_id?: string;
+    name: string;
+    description?: string;
+    price: number | string;
+    url?: string;
+    reserved?: boolean;
+    reserved_by?: string;
+};
+
+type GiftListResponse = {
+    data?: GiftResource[];
+};
+
+type GiftResponse = {
+    data?: GiftResource;
 };
 
 const destinations: Record<UserRole, string> = {
@@ -194,13 +237,50 @@ function mapEventResource(event: AdminEventResource): CreatedEventSummary {
         id: String(event.id),
         slug: event.slug ?? String(event.id),
         title: event.title,
+        description: event.description,
         date: formatEventDate(event.starts_at),
+        startsAt: event.starts_at,
+        endsAt: event.ends_at,
         place: event.location ?? 'Local a definir',
         status: event.status === 'published' ? 'Publicado' : 'Salvo',
         confirmed: 0,
         rsvp: 0,
         image: 'https://images.unsplash.com/photo-1519167758481-83f550bb49b3?auto=format&fit=crop&w=900&q=80',
     };
+}
+
+function mapBudgetResource(item: BudgetResource): BudgetItem {
+    return {
+        id: String(item.id),
+        eventId: item.event_id,
+        category: item.category,
+        description: item.description,
+        amount: Number(item.amount),
+        paid: Boolean(item.paid),
+    };
+}
+
+function mapGiftResource(item: GiftResource): GiftWish {
+    return {
+        id: String(item.id),
+        eventId: item.event_id,
+        name: item.name,
+        description: item.description ?? '',
+        price: Number(item.price),
+        url: item.url ?? '',
+        reserved: Boolean(item.reserved),
+        reservedBy: item.reserved_by ?? '',
+    };
+}
+
+async function responseError(response: Response, fallback: string): Promise<Error> {
+    const payload = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
+
+    return new Error(payload.error ?? payload.message ?? fallback);
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+    return error instanceof Error ? error.message : fallback;
 }
 
 function formatEventDate(value: string): string {
@@ -277,15 +357,49 @@ const tenants = [
 ];
 
 const defaultBudgetItems: BudgetItem[] = [
-    { id: 'buffet', category: 'Buffet', description: 'Comidas, bebidas e equipe de servico', amount: 8500 },
-    { id: 'aluguel', category: 'Aluguel', description: 'Espaco do evento', amount: 4200 },
-    { id: 'decoracao', category: 'Decoracao', description: 'Flores, mobiliario e ambientacao', amount: 2800 },
-    { id: 'som-luz', category: 'Som e luz', description: 'DJ, iluminacao e estrutura tecnica', amount: 2300 },
+    {
+        id: 'buffet',
+        category: 'Buffet',
+        description: 'Comidas, bebidas e equipe de servico',
+        amount: 8500,
+        paid: false,
+    },
+    { id: 'aluguel', category: 'Aluguel', description: 'Espaco do evento', amount: 4200, paid: false },
+    {
+        id: 'decoracao',
+        category: 'Decoracao',
+        description: 'Flores, mobiliario e ambientacao',
+        amount: 2800,
+        paid: false,
+    },
+    {
+        id: 'som-luz',
+        category: 'Som e luz',
+        description: 'DJ, iluminacao e estrutura tecnica',
+        amount: 2300,
+        paid: false,
+    },
 ];
 
 const defaultGiftWishes: GiftWish[] = [
-    { id: 'pix', name: 'Cota Pix dos anfitrioes', type: 'Dinheiro', targetValue: 5000, priority: 'Alta' },
-    { id: 'vinhos', name: 'Adega inicial', type: 'Casa', targetValue: 1200, priority: 'Media' },
+    {
+        id: 'pix',
+        name: 'Cota Pix dos anfitrioes',
+        description: 'Ajuda para custos do evento',
+        price: 5000,
+        url: '',
+        reserved: false,
+        reservedBy: '',
+    },
+    {
+        id: 'vinhos',
+        name: 'Adega inicial',
+        description: 'Selecao de vinhos para casa',
+        price: 1200,
+        url: '',
+        reserved: false,
+        reservedBy: '',
+    },
 ];
 
 function readStoredArray<T>(key: string, fallback: T[]): T[] {
@@ -453,6 +567,49 @@ export function AdminDashboard() {
             .filter((event) => !deletedEventIds.includes(event.id))
             .map((event) => overrides.get(event.id) ?? event);
     }, [createdEvents, deletedEventIds, eventOverrides, eventsQuery.data]);
+    const planningEventId = events[0]?.id;
+    const budgetQuery = useQuery({
+        queryKey: ['event-budget', planningEventId],
+        enabled: user?.role === 'owner' && Boolean(session?.token) && Boolean(planningEventId),
+        queryFn: async () => {
+            if (!session?.token || !planningEventId) {
+                throw new Error('Selecione um evento para carregar o orcamento.');
+            }
+
+            const response = await fetch(apiV1Url(`/go/events/${planningEventId}/budget`), {
+                headers: authHeaders(session.token),
+            });
+
+            if (!response.ok) {
+                throw await responseError(response, 'Nao foi possivel carregar o orcamento.');
+            }
+
+            const payload = (await response.json()) as BudgetListResponse;
+
+            return (payload.data ?? []).map(mapBudgetResource);
+        },
+    });
+    const giftsQuery = useQuery({
+        queryKey: ['event-gifts', planningEventId],
+        enabled: user?.role === 'owner' && Boolean(session?.token) && Boolean(planningEventId),
+        queryFn: async () => {
+            if (!session?.token || !planningEventId) {
+                throw new Error('Selecione um evento para carregar os presentes.');
+            }
+
+            const response = await fetch(apiV1Url(`/go/events/${planningEventId}/gifts`), {
+                headers: authHeaders(session.token),
+            });
+
+            if (!response.ok) {
+                throw await responseError(response, 'Nao foi possivel carregar os presentes.');
+            }
+
+            const payload = (await response.json()) as GiftListResponse;
+
+            return (payload.data ?? []).map(mapGiftResource);
+        },
+    });
 
     if (!session || !user) {
         return <Navigate to="/login" replace />;
@@ -619,21 +776,68 @@ export function AdminDashboard() {
                             events={events}
                             isLoadingEvents={eventsQuery.isLoading}
                             eventsError={eventsQuery.error?.message}
-                            budgetItems={budgetItems}
-                            giftWishes={giftWishes}
-                            onUpdateEvent={(event) => {
+                            planningEventId={planningEventId}
+                            budgetItems={budgetQuery.data ?? budgetItems}
+                            giftWishes={giftsQuery.data ?? giftWishes}
+                            isLoadingBudget={budgetQuery.isLoading}
+                            isLoadingGifts={giftsQuery.isLoading}
+                            budgetError={budgetQuery.error?.message}
+                            giftsError={giftsQuery.error?.message}
+                            onUpdateEvent={async (event) => {
+                                if (!session.token) {
+                                    throw new Error('Sessao expirada. Faca login novamente.');
+                                }
+
+                                const response = await fetch(apiV1Url(`/go/events/${event.id}`), {
+                                    method: 'PUT',
+                                    headers: authHeaders(session.token),
+                                    body: JSON.stringify({
+                                        title: event.title,
+                                        description: event.description ?? 'Evento atualizado pelo painel Invitely.',
+                                        starts_at: event.startsAt ?? new Date().toISOString(),
+                                        ends_at:
+                                            event.endsAt ??
+                                            event.startsAt ??
+                                            new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+                                        location: event.place,
+                                    }),
+                                });
+
+                                if (!response.ok) {
+                                    throw await responseError(response, 'Nao foi possivel atualizar o evento.');
+                                }
+
+                                const payload = (await response.json()) as { data?: AdminEventResource };
+                                const updatedEvent = payload.data ? mapEventResource(payload.data) : event;
                                 setCreatedEvents((current) =>
-                                    current.map((item) => (item.id === event.id ? event : item)),
+                                    current.map((item) => (item.id === updatedEvent.id ? updatedEvent : item)),
                                 );
                                 setEventOverrides((current) => {
-                                    const next = [event, ...current.filter((item) => item.id !== event.id)];
+                                    const next = [
+                                        updatedEvent,
+                                        ...current.filter((item) => item.id !== updatedEvent.id),
+                                    ];
                                     writeStoredArray('invitely.eventOverrides', next);
 
                                     return next;
                                 });
-                                notify(`${event.title} atualizado no painel.`);
+                                void eventsQuery.refetch();
+                                notify(`${updatedEvent.title} atualizado na API.`);
                             }}
-                            onDeleteEvent={(eventId) => {
+                            onDeleteEvent={async (eventId) => {
+                                if (!session.token) {
+                                    throw new Error('Sessao expirada. Faca login novamente.');
+                                }
+
+                                const response = await fetch(apiV1Url(`/go/events/${eventId}`), {
+                                    method: 'DELETE',
+                                    headers: authHeaders(session.token),
+                                });
+
+                                if (!response.ok) {
+                                    throw await responseError(response, 'Nao foi possivel deletar o evento.');
+                                }
+
                                 setCreatedEvents((current) => current.filter((event) => event.id !== eventId));
                                 setDeletedEventIds((current) => {
                                     const next = current.includes(eventId) ? current : [...current, eventId];
@@ -641,15 +845,98 @@ export function AdminDashboard() {
 
                                     return next;
                                 });
-                                notify('Evento removido do painel.');
+                                void eventsQuery.refetch();
+                                notify('Evento deletado na API.');
                             }}
-                            onBudgetChange={(items) => {
-                                setBudgetItems(items);
-                                writeStoredArray('invitely.budgetItems', items);
+                            onAddBudgetItem={async (item) => {
+                                if (!session.token || !planningEventId) {
+                                    throw new Error('Crie ou carregue um evento antes de adicionar custos.');
+                                }
+
+                                const response = await fetch(apiV1Url(`/go/events/${planningEventId}/budget`), {
+                                    method: 'POST',
+                                    headers: authHeaders(session.token),
+                                    body: JSON.stringify({
+                                        description: item.description,
+                                        category: item.category,
+                                        amount: item.amount,
+                                        paid: item.paid,
+                                    }),
+                                });
+
+                                if (!response.ok) {
+                                    throw await responseError(response, 'Nao foi possivel salvar o item de orcamento.');
+                                }
+
+                                const payload = (await response.json()) as BudgetResponse;
+                                const createdItem = payload.data ? mapBudgetResource(payload.data) : item;
+                                setBudgetItems((current) => [createdItem, ...current]);
+                                void budgetQuery.refetch();
+                                notify('Item de orcamento salvo na API.');
                             }}
-                            onGiftWishesChange={(items) => {
-                                setGiftWishes(items);
-                                writeStoredArray('invitely.giftWishes', items);
+                            onDeleteBudgetItem={async (itemId) => {
+                                if (!session.token) {
+                                    throw new Error('Sessao expirada. Faca login novamente.');
+                                }
+
+                                const response = await fetch(apiV1Url(`/go/budget/${itemId}`), {
+                                    method: 'DELETE',
+                                    headers: authHeaders(session.token),
+                                });
+
+                                if (!response.ok) {
+                                    throw await responseError(response, 'Nao foi possivel remover o item.');
+                                }
+
+                                setBudgetItems((current) => current.filter((item) => item.id !== itemId));
+                                void budgetQuery.refetch();
+                                notify('Item de orcamento removido da API.');
+                            }}
+                            onAddGiftWish={async (item) => {
+                                if (!session.token || !planningEventId) {
+                                    throw new Error('Crie ou carregue um evento antes de adicionar presentes.');
+                                }
+
+                                const response = await fetch(apiV1Url(`/go/events/${planningEventId}/gifts`), {
+                                    method: 'POST',
+                                    headers: authHeaders(session.token),
+                                    body: JSON.stringify({
+                                        name: item.name,
+                                        description: item.description,
+                                        price: item.price,
+                                        url: item.url,
+                                        reserved: item.reserved,
+                                        reserved_by: item.reservedBy,
+                                    }),
+                                });
+
+                                if (!response.ok) {
+                                    throw await responseError(response, 'Nao foi possivel salvar o presente.');
+                                }
+
+                                const payload = (await response.json()) as GiftResponse;
+                                const createdItem = payload.data ? mapGiftResource(payload.data) : item;
+                                setGiftWishes((current) => [createdItem, ...current]);
+                                void giftsQuery.refetch();
+                                notify('Presente salvo na API.');
+                            }}
+                            onDeleteGiftWish={async (itemId) => {
+                                if (!session.token) {
+                                    throw new Error('Sessao expirada. Faca login novamente.');
+                                }
+
+                                const response = await fetch(apiV1Url(`/go/gifts/${itemId}`), {
+                                    method: 'DELETE',
+                                    headers: authHeaders(session.token),
+                                });
+
+                                if (!response.ok) {
+                                    throw await responseError(response, 'Nao foi possivel remover o presente.');
+                                }
+
+                                setGiftWishes((current) => current.filter((item) => item.id !== itemId));
+                                void giftsQuery.refetch();
+                                notify('Presente removido da API.');
                             }}
                             activeTemplate={activeTemplate}
                             onApplyTemplate={setActiveTemplate}
@@ -668,12 +955,19 @@ function DashboardContent({
     events,
     isLoadingEvents,
     eventsError,
+    planningEventId,
     budgetItems,
     giftWishes,
+    isLoadingBudget,
+    isLoadingGifts,
+    budgetError,
+    giftsError,
     onUpdateEvent,
     onDeleteEvent,
-    onBudgetChange,
-    onGiftWishesChange,
+    onAddBudgetItem,
+    onDeleteBudgetItem,
+    onAddGiftWish,
+    onDeleteGiftWish,
     activeTemplate,
     onApplyTemplate,
 }: {
@@ -683,12 +977,19 @@ function DashboardContent({
     events: CreatedEventSummary[];
     isLoadingEvents: boolean;
     eventsError?: string;
+    planningEventId?: string;
     budgetItems: BudgetItem[];
     giftWishes: GiftWish[];
-    onUpdateEvent: (event: CreatedEventSummary) => void;
-    onDeleteEvent: (eventId: string) => void;
-    onBudgetChange: (items: BudgetItem[]) => void;
-    onGiftWishesChange: (items: GiftWish[]) => void;
+    isLoadingBudget: boolean;
+    isLoadingGifts: boolean;
+    budgetError?: string;
+    giftsError?: string;
+    onUpdateEvent: (event: CreatedEventSummary) => Promise<void>;
+    onDeleteEvent: (eventId: string) => Promise<void>;
+    onAddBudgetItem: (item: BudgetItem) => Promise<void>;
+    onDeleteBudgetItem: (itemId: string) => Promise<void>;
+    onAddGiftWish: (item: GiftWish) => Promise<void>;
+    onDeleteGiftWish: (itemId: string) => Promise<void>;
     activeTemplate: TemplateOption;
     onApplyTemplate: (template: TemplateOption) => void;
 }) {
@@ -711,7 +1012,18 @@ function DashboardContent({
     }
 
     if (view === 'budget') {
-        return <BudgetBIView events={events} items={budgetItems} onChange={onBudgetChange} notify={notify} />;
+        return (
+            <BudgetBIView
+                eventId={planningEventId}
+                events={events}
+                items={budgetItems}
+                isLoading={isLoadingBudget}
+                error={budgetError}
+                onAddItem={onAddBudgetItem}
+                onDeleteItem={onDeleteBudgetItem}
+                notify={notify}
+            />
+        );
     }
 
     if (view === 'guests') {
@@ -773,7 +1085,15 @@ function DashboardContent({
 
     if (view === 'gifts') {
         return role === 'owner' ? (
-            <GiftPlannerView wishes={giftWishes} onChange={onGiftWishesChange} notify={notify} />
+            <GiftPlannerView
+                eventId={planningEventId}
+                wishes={giftWishes}
+                isLoading={isLoadingGifts}
+                error={giftsError}
+                onAddWish={onAddGiftWish}
+                onDeleteWish={onDeleteGiftWish}
+                notify={notify}
+            />
         ) : (
             <CardsModule
                 title="Presentes"
@@ -883,8 +1203,8 @@ function EventsView({
     events: CreatedEventSummary[];
     isLoading: boolean;
     error?: string;
-    onUpdateEvent: (event: CreatedEventSummary) => void;
-    onDeleteEvent: (eventId: string) => void;
+    onUpdateEvent: (event: CreatedEventSummary) => Promise<void>;
+    onDeleteEvent: (eventId: string) => Promise<void>;
 }) {
     const [editingEvent, setEditingEvent] = useState<CreatedEventSummary | null>(null);
 
@@ -965,7 +1285,11 @@ function EventsView({
                                     variant="danger"
                                     onClick={() => {
                                         if (window.confirm(`Remover ${event.title} do painel?`)) {
-                                            onDeleteEvent(event.id);
+                                            onDeleteEvent(event.id).catch((deleteError: unknown) => {
+                                                notify(
+                                                    getErrorMessage(deleteError, 'Nao foi possivel deletar o evento.'),
+                                                );
+                                            });
                                         }
                                     }}
                                 >
@@ -983,8 +1307,8 @@ function EventsView({
                     onCancel={() => {
                         setEditingEvent(null);
                     }}
-                    onSave={(event) => {
-                        onUpdateEvent(event);
+                    onSave={async (event) => {
+                        await onUpdateEvent(event);
                         setEditingEvent(null);
                     }}
                 />
@@ -1000,9 +1324,11 @@ function EventEditPanel({
 }: {
     event: CreatedEventSummary;
     onCancel: () => void;
-    onSave: (event: CreatedEventSummary) => void;
+    onSave: (event: CreatedEventSummary) => Promise<void>;
 }) {
     const [draft, setDraft] = useState(event);
+    const [error, setError] = useState<string | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
 
     return (
         <motion.aside
@@ -1024,13 +1350,22 @@ function EventEditPanel({
                     </ActionButton>
                     <ActionButton
                         onClick={() => {
-                            onSave(draft);
+                            setIsSaving(true);
+                            setError(null);
+                            onSave(draft)
+                                .catch((saveError: unknown) => {
+                                    setError(getErrorMessage(saveError, 'Nao foi possivel salvar o evento.'));
+                                })
+                                .finally(() => {
+                                    setIsSaving(false);
+                                });
                         }}
                     >
-                        Salvar
+                        {isSaving ? 'Salvando...' : 'Salvar'}
                     </ActionButton>
                 </div>
             </div>
+            {error ? <p className="mt-4 text-sm text-[#FCA5A5]">{error}</p> : null}
             <div className="mt-5 grid gap-4 md:grid-cols-3">
                 <label>
                     <span className="mb-2 block text-sm text-[#CBD5E1]">Nome</span>
@@ -1073,17 +1408,27 @@ function EventEditPanel({
 }
 
 function BudgetBIView({
+    eventId,
     events,
     items,
-    onChange,
+    isLoading,
+    error,
+    onAddItem,
+    onDeleteItem,
     notify,
 }: {
+    eventId?: string;
     events: CreatedEventSummary[];
     items: BudgetItem[];
-    onChange: (items: BudgetItem[]) => void;
+    isLoading: boolean;
+    error?: string;
+    onAddItem: (item: BudgetItem) => Promise<void>;
+    onDeleteItem: (itemId: string) => Promise<void>;
     notify: (message: string) => void;
 }) {
     const [draft, setDraft] = useState({ category: '', description: '', amount: '' });
+    const [formError, setFormError] = useState<string | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
     const total = items.reduce((sum, item) => sum + item.amount, 0);
     const confirmed = events.reduce((sum, event) => sum + event.confirmed, 0);
     const expectedGuests = Math.max(confirmed, events.length * 80, 1);
@@ -1097,27 +1442,42 @@ function BudgetBIView({
             return;
         }
 
-        onChange([
-            ...items,
-            {
-                id: `budget-${Date.now().toString()}`,
-                category: draft.category.trim(),
-                description: draft.description.trim() || 'Item do orcamento',
-                amount,
-            },
-        ]);
-        setDraft({ category: '', description: '', amount: '' });
-        notify('Item adicionado ao BI de custos.');
+        setIsSaving(true);
+        setFormError(null);
+        onAddItem({
+            id: `budget-${Date.now().toString()}`,
+            eventId,
+            category: draft.category.trim(),
+            description: draft.description.trim() || draft.category.trim(),
+            amount,
+            paid: false,
+        })
+            .then(() => {
+                setDraft({ category: '', description: '', amount: '' });
+            })
+            .catch((addError: unknown) => {
+                setFormError(getErrorMessage(addError, 'Nao foi possivel salvar o item de orcamento.'));
+            })
+            .finally(() => {
+                setIsSaving(false);
+            });
     }
 
     function removeItem(id: string) {
-        onChange(items.filter((item) => item.id !== id));
-        notify('Item removido do orcamento.');
+        onDeleteItem(id).catch((deleteError: unknown) => {
+            notify(getErrorMessage(deleteError, 'Nao foi possivel remover o item.'));
+        });
     }
 
     return (
         <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
             <div className="grid gap-5">
+                {!eventId ? (
+                    <Panel title="Orcamento" className="border-[#F59E0B]/40">
+                        <p className="text-sm text-[#FDE68A]">Crie ou carregue um evento antes de salvar custos.</p>
+                    </Panel>
+                ) : null}
+                {error ? <p className="text-sm text-[#FCA5A5]">{error}</p> : null}
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                     <MetricPill label="Custo base" value={formatCurrency(total)} />
                     <MetricPill label="Reserva 12%" value={formatCurrency(contingency)} />
@@ -1126,6 +1486,7 @@ function BudgetBIView({
                 </div>
 
                 <Panel title="Custos planejados">
+                    {isLoading ? <p className="mb-4 text-sm text-[#94A3B8]">Carregando orcamento...</p> : null}
                     <div className="grid gap-3">
                         {items.map((item) => (
                             <div
@@ -1183,6 +1544,8 @@ function BudgetBIView({
                         className="field-control"
                     />
                     <ActionButton onClick={addItem}>Adicionar ao BI</ActionButton>
+                    {formError ? <p className="text-sm text-[#FCA5A5]">{formError}</p> : null}
+                    {isSaving ? <p className="text-sm text-[#94A3B8]">Salvando na API...</p> : null}
                 </div>
             </aside>
         </section>
@@ -1190,41 +1553,65 @@ function BudgetBIView({
 }
 
 function GiftPlannerView({
+    eventId,
     wishes,
-    onChange,
+    isLoading,
+    error,
+    onAddWish,
+    onDeleteWish,
     notify,
 }: {
+    eventId?: string;
     wishes: GiftWish[];
-    onChange: (items: GiftWish[]) => void;
+    isLoading: boolean;
+    error?: string;
+    onAddWish: (item: GiftWish) => Promise<void>;
+    onDeleteWish: (itemId: string) => Promise<void>;
     notify: (message: string) => void;
 }) {
-    const [draft, setDraft] = useState({ name: '', type: 'Casa', targetValue: '', priority: 'Media' });
-    const total = wishes.reduce((sum, item) => sum + item.targetValue, 0);
+    const [draft, setDraft] = useState({ name: '', description: '', price: '', url: '' });
+    const [formError, setFormError] = useState<string | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
+    const total = wishes.reduce((sum, item) => sum + item.price, 0);
 
     function addWish() {
-        const targetValue = Number(draft.targetValue);
+        const price = Number(draft.price);
 
-        if (!draft.name.trim() || Number.isNaN(targetValue) || targetValue < 0) {
+        if (!draft.name.trim() || Number.isNaN(price) || price < 0) {
             return;
         }
 
-        onChange([
-            ...wishes,
-            {
-                id: `gift-${Date.now().toString()}`,
-                name: draft.name.trim(),
-                type: draft.type,
-                targetValue,
-                priority: draft.priority,
-            },
-        ]);
-        setDraft({ name: '', type: 'Casa', targetValue: '', priority: 'Media' });
-        notify('Presente adicionado a lista.');
+        setIsSaving(true);
+        setFormError(null);
+        onAddWish({
+            id: `gift-${Date.now().toString()}`,
+            eventId,
+            name: draft.name.trim(),
+            description: draft.description.trim(),
+            price,
+            url: draft.url.trim(),
+            reserved: false,
+            reservedBy: '',
+        })
+            .then(() => {
+                setDraft({ name: '', description: '', price: '', url: '' });
+            })
+            .catch((addError: unknown) => {
+                setFormError(getErrorMessage(addError, 'Nao foi possivel salvar o presente.'));
+            })
+            .finally(() => {
+                setIsSaving(false);
+            });
     }
 
     return (
         <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
             <Panel title="Lista de presentes desejados">
+                {!eventId ? (
+                    <p className="mb-4 text-sm text-[#FDE68A]">Crie ou carregue um evento antes de salvar presentes.</p>
+                ) : null}
+                {error ? <p className="mb-4 text-sm text-[#FCA5A5]">{error}</p> : null}
+                {isLoading ? <p className="mb-4 text-sm text-[#94A3B8]">Carregando presentes...</p> : null}
                 <div className="grid gap-3">
                     {wishes.map((wish) => (
                         <div
@@ -1233,16 +1620,15 @@ function GiftPlannerView({
                         >
                             <div>
                                 <p className="font-semibold">{wish.name}</p>
-                                <p className="mt-1 text-sm text-[#94A3B8]">
-                                    {wish.type} - prioridade {wish.priority}
-                                </p>
+                                <p className="mt-1 text-sm text-[#94A3B8]">{wish.description || wish.url}</p>
                             </div>
-                            <strong>{formatCurrency(wish.targetValue)}</strong>
+                            <strong>{formatCurrency(wish.price)}</strong>
                             <button
                                 type="button"
                                 onClick={() => {
-                                    onChange(wishes.filter((item) => item.id !== wish.id));
-                                    notify('Presente removido da lista.');
+                                    onDeleteWish(wish.id).catch((deleteError: unknown) => {
+                                        notify(getErrorMessage(deleteError, 'Nao foi possivel remover o presente.'));
+                                    });
                                 }}
                                 className="inline-flex h-10 items-center justify-center rounded-xl border border-[#EF4444]/40 px-3 text-sm text-[#FCA5A5]"
                             >
@@ -1266,40 +1652,36 @@ function GiftPlannerView({
                         }}
                         className="field-control"
                     />
-                    <select
-                        value={draft.type}
+                    <input
+                        placeholder="Descricao"
+                        value={draft.description}
                         onChange={(event) => {
-                            setDraft((current) => ({ ...current, type: event.target.value }));
+                            setDraft((current) => ({ ...current, description: event.target.value }));
                         }}
                         className="field-control"
-                    >
-                        <option>Casa</option>
-                        <option>Dinheiro</option>
-                        <option>Experiencia</option>
-                        <option>Evento</option>
-                    </select>
-                    <select
-                        value={draft.priority}
+                    />
+                    <input
+                        type="url"
+                        placeholder="Link da loja ou lista"
+                        value={draft.url}
                         onChange={(event) => {
-                            setDraft((current) => ({ ...current, priority: event.target.value }));
+                            setDraft((current) => ({ ...current, url: event.target.value }));
                         }}
                         className="field-control"
-                    >
-                        <option>Alta</option>
-                        <option>Media</option>
-                        <option>Baixa</option>
-                    </select>
+                    />
                     <input
                         type="number"
                         min="0"
                         placeholder="Valor desejado"
-                        value={draft.targetValue}
+                        value={draft.price}
                         onChange={(event) => {
-                            setDraft((current) => ({ ...current, targetValue: event.target.value }));
+                            setDraft((current) => ({ ...current, price: event.target.value }));
                         }}
                         className="field-control"
                     />
                     <ActionButton onClick={addWish}>Adicionar presente</ActionButton>
+                    {formError ? <p className="text-sm text-[#FCA5A5]">{formError}</p> : null}
+                    {isSaving ? <p className="text-sm text-[#94A3B8]">Salvando na API...</p> : null}
                 </div>
             </aside>
         </section>

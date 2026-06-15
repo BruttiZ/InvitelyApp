@@ -15,7 +15,7 @@ use App\Http\Controllers\Api\Public\PublicRsvpController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->middleware(['throttle:api'])->group(function (): void {
-    Route::match(['get', 'post'], '/go/{path?}', GoApiProxyController::class)
+    Route::match(['get', 'post', 'put', 'delete'], '/go/{path?}', GoApiProxyController::class)
         ->where('path', '.*');
 });
 

@@ -11,7 +11,10 @@ export type CreatedEventSummary = {
     id: string;
     slug: string;
     title: string;
+    description?: string;
     date: string;
+    startsAt?: string;
+    endsAt?: string;
     place: string;
     status: string;
     confirmed: number;
@@ -34,6 +37,7 @@ type CreateEventResponse = {
     data?: {
         id?: string | number;
         title?: string;
+        description?: string;
         slug?: string;
         starts_at?: string;
         ends_at?: string;
@@ -116,10 +120,6 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
             const slug = form.slug.trim() || eventSlug(form.name);
             const venueName = form.venueName.trim();
             const address = form.address.trim();
-            const createdEvent: CreatedEventSummary = {
-                ...preview,
-                slug,
-            };
             const payload: {
                 title: string;
                 description: string;
@@ -132,6 +132,13 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
                 starts_at: new Date(form.startsAt).toISOString(),
                 ends_at: new Date(form.endsAt || form.startsAt).toISOString(),
                 location: [venueName, address].filter(Boolean).join(' - ') || 'Local a definir',
+            };
+            const createdEvent: CreatedEventSummary = {
+                ...preview,
+                slug,
+                description: payload.description,
+                startsAt: payload.starts_at,
+                endsAt: payload.ends_at,
             };
 
             let response: Response;
@@ -170,7 +177,10 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
                 id: String(apiEvent?.id ?? Date.now()),
                 slug: apiEvent?.slug ?? createdEvent.slug,
                 title: apiEvent?.title ?? createdEvent.title,
+                description: apiEvent?.description ?? createdEvent.description,
                 date: apiEvent?.starts_at ? formatEventDate(apiEvent.starts_at) : createdEvent.date,
+                startsAt: apiEvent?.starts_at ?? createdEvent.startsAt,
+                endsAt: apiEvent?.ends_at ?? createdEvent.endsAt,
                 place: apiEvent?.location ?? createdEvent.place,
                 status: apiEvent?.status === 'published' ? 'Publicado' : 'Salvo',
             };

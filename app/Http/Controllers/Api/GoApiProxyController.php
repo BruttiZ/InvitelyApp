@@ -30,8 +30,20 @@ final class GoApiProxyController extends Controller
             'auth/login',
             'auth/register',
             'events',
+            'events/*/budget',
+            'events/*/gifts',
             'guests',
             'rsvp',
+        ],
+        'PUT' => [
+            'events/*',
+            'budget/*',
+            'gifts/*',
+        ],
+        'DELETE' => [
+            'events/*',
+            'budget/*',
+            'gifts/*',
         ],
     ];
 
@@ -57,7 +69,7 @@ final class GoApiProxyController extends Controller
         try {
             $options = ['query' => $request->query()];
 
-            if ($method === 'POST') {
+            if (in_array($method, ['POST', 'PUT'], true)) {
                 $options['json'] = $request->isJson() ? $request->json()->all() : $request->all();
             }
 
