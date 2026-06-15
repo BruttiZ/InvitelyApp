@@ -577,9 +577,34 @@ export function AdminDashboard() {
     }, [createdEvents, deletedEventIds, eventOverrides, eventsQuery.data]);
     const planningEventId = events[0]?.id;
     const activeReminderEventId = reminderEventId || planningEventId;
-    const guestsQuery = useQuery({
-        queryKey: ['event-guests', activeReminderEventId],
-        enabled: user?.role === 'owner' && Boolean(session?.token) && Boolean(activeReminderEventId),
+    const planningGuestsQuery = useQuery({
+        queryKey: ['event-guests', planningEventId],
+        enabled: user?.role === 'owner' && Boolean(session?.token) && Boolean(planningEventId),
+        queryFn: async () => {
+            if (!session?.token || !planningEventId) {
+                throw new Error('Selecione um evento para carregar convidados.');
+            }
+
+            const response = await fetch(apiV1Url(`/go/guests?event_id=${encodeURIComponent(planningEventId)}`), {
+                headers: authHeaders(session.token),
+            });
+
+            if (!response.ok) {
+                throw await responseError(response, 'Nao foi possivel carregar convidados.');
+            }
+
+            const payload = (await response.json()) as GuestListResponse;
+
+            return (payload.data ?? []).map(mapGuestResource).filter((guest) => guest.email.trim() !== '');
+        },
+    });
+    const reminderGuestsQuery = useQuery({
+        queryKey: ['event-reminder-guests', activeReminderEventId],
+        enabled:
+            user?.role === 'owner' &&
+            Boolean(session?.token) &&
+            Boolean(activeReminderEventId) &&
+            activeReminderEventId !== planningEventId,
         queryFn: async () => {
             if (!session?.token || !activeReminderEventId) {
                 throw new Error('Selecione um evento para carregar convidados.');
@@ -598,6 +623,14 @@ export function AdminDashboard() {
             return (payload.data ?? []).map(mapGuestResource).filter((guest) => guest.email.trim() !== '');
         },
     });
+    const reminderGuests =
+        activeReminderEventId === planningEventId ? (planningGuestsQuery.data ?? []) : (reminderGuestsQuery.data ?? []);
+    const isLoadingReminderGuests =
+        activeReminderEventId === planningEventId ? planningGuestsQuery.isLoading : reminderGuestsQuery.isLoading;
+    const reminderGuestsError =
+        activeReminderEventId === planningEventId
+            ? planningGuestsQuery.error?.message
+            : reminderGuestsQuery.error?.message;
     const budgetQuery = useQuery({
         queryKey: ['event-budget', planningEventId],
         enabled: user?.role === 'owner' && Boolean(session?.token) && Boolean(planningEventId),
@@ -793,9 +826,9 @@ export function AdminDashboard() {
                             events={events}
                             selectedEventId={activeReminderEventId}
                             organizerEmail={user.email}
-                            guests={guestsQuery.data ?? []}
-                            isLoadingGuests={guestsQuery.isLoading}
-                            guestsError={guestsQuery.error?.message}
+                            guests={reminderGuests}
+                            isLoadingGuests={isLoadingReminderGuests}
+                            guestsError={reminderGuestsError}
                             onEventChange={setReminderEventId}
                             onCancel={() => {
                                 setIsSendingReminder(false);
@@ -814,9 +847,9 @@ export function AdminDashboard() {
                             events={events}
                             isLoadingEvents={eventsQuery.isLoading}
                             eventsError={eventsQuery.error?.message}
-                            guests={guestsQuery.data ?? []}
-                            isLoadingGuests={guestsQuery.isLoading}
-                            guestsError={guestsQuery.error?.message}
+                            guests={planningGuestsQuery.data ?? []}
+                            isLoadingGuests={planningGuestsQuery.isLoading}
+                            guestsError={planningGuestsQuery.error?.message}
                             planningEventId={planningEventId}
                             budgetItems={budgetQuery.data ?? budgetItems}
                             giftWishes={giftsQuery.data ?? giftWishes}
@@ -1063,6 +1096,7 @@ function DashboardContent({
             <BudgetBIView
                 eventId={planningEventId}
                 events={events}
+                guests={guests}
                 items={budgetItems}
                 isLoading={isLoadingBudget}
                 error={budgetError}
@@ -1476,6 +1510,7 @@ function EventEditPanel({
 function BudgetBIView({
     eventId,
     events,
+    guests,
     items,
     isLoading,
     error,
@@ -1485,6 +1520,7 @@ function BudgetBIView({
 }: {
     eventId?: string;
     events: CreatedEventSummary[];
+    guests: GuestRow[];
     items: BudgetItem[];
     isLoading: boolean;
     error?: string;
@@ -1496,8 +1532,12 @@ function BudgetBIView({
     const [formError, setFormError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const total = items.reduce((sum, item) => sum + item.amount, 0);
-    const confirmed = events.reduce((sum, event) => sum + event.confirmed, 0);
-    const expectedGuests = Math.max(confirmed, events.length * 80, 1);
+    const confirmedFromGuests = guests.filter(
+        (guest) => guest.status === 'Confirmado' || guest.status === 'Check-in feito',
+    ).length;
+    const confirmedFromEvents = events.reduce((sum, event) => sum + event.confirmed, 0);
+    const confirmedGuests = Math.max(confirmedFromGuests, confirmedFromEvents, 1);
+    const allGuests = Math.max(guests.length, confirmedGuests, 1);
     const contingency = total * 0.12;
     const estimatedTotal = total + contingency;
 
@@ -1544,11 +1584,15 @@ function BudgetBIView({
                     </Panel>
                 ) : null}
                 {error ? <p className="text-sm text-[#FCA5A5]">{error}</p> : null}
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
                     <MetricPill label="Custo base" value={formatCurrency(total)} />
                     <MetricPill label="Reserva 12%" value={formatCurrency(contingency)} />
                     <MetricPill label="Estimativa total" value={formatCurrency(estimatedTotal)} />
-                    <MetricPill label="Por convidado" value={formatCurrency(estimatedTotal / expectedGuests)} />
+                    <MetricPill label="Por convidado - todos" value={formatCurrency(estimatedTotal / allGuests)} />
+                    <MetricPill
+                        label="Por convidado - confirmados"
+                        value={formatCurrency(estimatedTotal / confirmedGuests)}
+                    />
                 </div>
 
                 <Panel title="Custos planejados">
