@@ -34,7 +34,6 @@ import { useMemo, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AuthUser, UserRole, clearSession, getStoredSession, roleLabel } from '../../auth/session';
 import { apiV1Url, authHeaders } from '../../../lib/api';
-import { envString } from '../../../lib/env';
 import { CreateEventForm, CreatedEventSummary } from './CreateEventForm';
 
 type DashboardView =
@@ -82,6 +81,14 @@ type GuestRow = {
     status: string;
 };
 
+type GuestResource = {
+    id?: string | number;
+    name?: string;
+    email?: string;
+    status?: string;
+    rsvp_status?: string;
+};
+
 type MetricItem = {
     label: string;
     value: string;
@@ -123,6 +130,10 @@ type AdminEventResource = {
 
 type PaginatedEventResponse = {
     data?: AdminEventResource[];
+};
+
+type GuestListResponse = {
+    data?: GuestResource[];
 };
 
 type BudgetResource = {
@@ -249,6 +260,14 @@ function mapEventResource(event: AdminEventResource): CreatedEventSummary {
     };
 }
 
+function mapGuestResource(guest: GuestResource): GuestRow {
+    return {
+        name: guest.name ?? guest.email ?? 'Convidado',
+        email: guest.email ?? '',
+        status: guest.status ?? guest.rsvp_status ?? 'Pendente',
+    };
+}
+
 function mapBudgetResource(item: BudgetResource): BudgetItem {
     return {
         id: String(item.id),
@@ -292,18 +311,6 @@ function formatEventDate(value: string): string {
         minute: '2-digit',
     }).format(new Date(value));
 }
-
-const guests: GuestRow[] = [
-    {
-        name: envString(import.meta.env.VITE_DEMO_GUEST_NAME, 'Convidado'),
-        email: envString(import.meta.env.VITE_DEMO_GUEST_EMAIL, 'guest@example.com'),
-        status: 'Confirmado',
-    },
-    { name: 'Ana Ribeiro', email: 'ana@example.com', status: 'Pendente' },
-    { name: 'Felipe Costa', email: 'felipe@example.com', status: 'Check-in feito' },
-    { name: 'Bianca Torres', email: 'bianca@example.com', status: 'Pendente' },
-    { name: 'Rafael Lima', email: 'rafael@example.com', status: 'Pendente' },
-];
 
 const defaultTemplate: TemplateOption = {
     id: 'linear-premium',
@@ -530,6 +537,7 @@ export function AdminDashboard() {
     const [giftWishes, setGiftWishes] = useState<GiftWish[]>(() =>
         readStoredArray('invitely.giftWishes', defaultGiftWishes),
     );
+    const [reminderEventId, setReminderEventId] = useState('');
     const [activeTemplate, setActiveTemplate] = useState<TemplateOption>(defaultTemplate);
     const [toast, setToast] = useState('Dashboard carregado. Explore os modulos do produto.');
 
@@ -568,6 +576,28 @@ export function AdminDashboard() {
             .map((event) => overrides.get(event.id) ?? event);
     }, [createdEvents, deletedEventIds, eventOverrides, eventsQuery.data]);
     const planningEventId = events[0]?.id;
+    const activeReminderEventId = reminderEventId || planningEventId;
+    const guestsQuery = useQuery({
+        queryKey: ['event-guests', activeReminderEventId],
+        enabled: user?.role === 'owner' && Boolean(session?.token) && Boolean(activeReminderEventId),
+        queryFn: async () => {
+            if (!session?.token || !activeReminderEventId) {
+                throw new Error('Selecione um evento para carregar convidados.');
+            }
+
+            const response = await fetch(apiV1Url(`/go/guests?event_id=${encodeURIComponent(activeReminderEventId)}`), {
+                headers: authHeaders(session.token),
+            });
+
+            if (!response.ok) {
+                throw await responseError(response, 'Nao foi possivel carregar convidados.');
+            }
+
+            const payload = (await response.json()) as GuestListResponse;
+
+            return (payload.data ?? []).map(mapGuestResource).filter((guest) => guest.email.trim() !== '');
+        },
+    });
     const budgetQuery = useQuery({
         queryKey: ['event-budget', planningEventId],
         enabled: user?.role === 'owner' && Boolean(session?.token) && Boolean(planningEventId),
@@ -759,6 +789,14 @@ export function AdminDashboard() {
                         </div>
                     ) : isSendingReminder ? (
                         <ReminderPanel
+                            key={activeReminderEventId ?? 'no-event'}
+                            events={events}
+                            selectedEventId={activeReminderEventId}
+                            organizerEmail={user.email}
+                            guests={guestsQuery.data ?? []}
+                            isLoadingGuests={guestsQuery.isLoading}
+                            guestsError={guestsQuery.error?.message}
+                            onEventChange={setReminderEventId}
                             onCancel={() => {
                                 setIsSendingReminder(false);
                                 notify('Envio de lembrete cancelado.');
@@ -776,6 +814,9 @@ export function AdminDashboard() {
                             events={events}
                             isLoadingEvents={eventsQuery.isLoading}
                             eventsError={eventsQuery.error?.message}
+                            guests={guestsQuery.data ?? []}
+                            isLoadingGuests={guestsQuery.isLoading}
+                            guestsError={guestsQuery.error?.message}
                             planningEventId={planningEventId}
                             budgetItems={budgetQuery.data ?? budgetItems}
                             giftWishes={giftsQuery.data ?? giftWishes}
@@ -955,6 +996,9 @@ function DashboardContent({
     events,
     isLoadingEvents,
     eventsError,
+    guests,
+    isLoadingGuests,
+    guestsError,
     planningEventId,
     budgetItems,
     giftWishes,
@@ -977,6 +1021,9 @@ function DashboardContent({
     events: CreatedEventSummary[];
     isLoadingEvents: boolean;
     eventsError?: string;
+    guests: GuestRow[];
+    isLoadingGuests: boolean;
+    guestsError?: string;
     planningEventId?: string;
     budgetItems: BudgetItem[];
     giftWishes: GiftWish[];
@@ -1027,6 +1074,25 @@ function DashboardContent({
     }
 
     if (view === 'guests') {
+        if (isLoadingGuests) {
+            return (
+                <Panel title="Convidados" className="mt-6">
+                    <div className="flex items-center gap-3 text-sm text-[#CBD5E1]">
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#22D3EE]/30 border-t-[#22D3EE]" />
+                        Carregando convidados do evento...
+                    </div>
+                </Panel>
+            );
+        }
+
+        if (guestsError) {
+            return (
+                <Panel title="Convidados" className="mt-6">
+                    <p className="text-sm text-[#FCA5A5]">{guestsError}</p>
+                </Panel>
+            );
+        }
+
         return (
             <DataPanel
                 title="Convidados"
@@ -1688,9 +1754,33 @@ function GiftPlannerView({
     );
 }
 
-function ReminderPanel({ onCancel, onSent }: { onCancel: () => void; onSent: (count: number) => void }) {
+function ReminderPanel({
+    events,
+    selectedEventId,
+    organizerEmail,
+    guests,
+    isLoadingGuests,
+    guestsError,
+    onEventChange,
+    onCancel,
+    onSent,
+}: {
+    events: CreatedEventSummary[];
+    selectedEventId?: string;
+    organizerEmail: string;
+    guests: GuestRow[];
+    isLoadingGuests: boolean;
+    guestsError?: string;
+    onEventChange: (eventId: string) => void;
+    onCancel: () => void;
+    onSent: (count: number) => void;
+}) {
+    const selectedEvent = events.find((event) => event.id === selectedEventId);
     const pendingGuests = guests.filter((guest) => guest.status === 'Pendente');
-    const [selectedEmails, setSelectedEmails] = useState<string[]>(pendingGuests.map((guest) => guest.email));
+    const defaultRecipientEmails =
+        pendingGuests.length > 0 ? pendingGuests.map((guest) => guest.email) : guests.map((guest) => guest.email);
+    const [fromEmail, setFromEmail] = useState(organizerEmail);
+    const [selectedEmailsOverride, setSelectedEmailsOverride] = useState<string[] | null>(null);
     const [customRecipients, setCustomRecipients] = useState<GuestRow[]>([]);
     const [customEmail, setCustomEmail] = useState('');
     const [subject, setSubject] = useState('Lembrete: confirme sua presenca no evento');
@@ -1702,10 +1792,31 @@ function ReminderPanel({ onCancel, onSent }: { onCancel: () => void; onSent: (co
     const pendingRecipientEmails = reminderGuests
         .filter((guest) => guest.status === 'Pendente' || guest.status === 'Manual')
         .map((guest) => guest.email);
+    const selectedEmails = selectedEmailsOverride ?? defaultRecipientEmails;
+    const canSend =
+        Boolean(selectedEventId) &&
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fromEmail.trim()) &&
+        selectedEmails.length > 0 &&
+        subject.trim() !== '' &&
+        message.trim() !== '';
 
     function toggleEmail(email: string) {
-        setSelectedEmails((current) =>
-            current.includes(email) ? current.filter((item) => item !== email) : [...current, email],
+        setSelectedEmailsOverride((current) =>
+            (current ?? selectedEmails).includes(email)
+                ? (current ?? selectedEmails).filter((item) => item !== email)
+                : [...(current ?? selectedEmails), email],
+        );
+    }
+
+    function selectEmails(emails: string[]) {
+        setSelectedEmailsOverride(emails);
+    }
+
+    function addSelectedEmail(email: string) {
+        setSelectedEmailsOverride((current) =>
+            (current ?? selectedEmails).includes(email)
+                ? (current ?? selectedEmails)
+                : [...(current ?? selectedEmails), email],
         );
     }
 
@@ -1717,9 +1828,7 @@ function ReminderPanel({ onCancel, onSent }: { onCancel: () => void; onSent: (co
         }
 
         if (reminderGuests.some((guest) => guest.email === normalizedEmail)) {
-            setSelectedEmails((current) =>
-                current.includes(normalizedEmail) ? current : [...current, normalizedEmail],
-            );
+            addSelectedEmail(normalizedEmail);
             setCustomEmail('');
             return;
         }
@@ -1734,12 +1843,12 @@ function ReminderPanel({ onCancel, onSent }: { onCancel: () => void; onSent: (co
                 status: 'Manual',
             },
         ]);
-        setSelectedEmails((current) => [...current, normalizedEmail]);
+        addSelectedEmail(normalizedEmail);
         setCustomEmail('');
     }
 
     function sendReminder() {
-        if (selectedEmails.length === 0) {
+        if (!canSend) {
             return;
         }
 
@@ -1762,8 +1871,8 @@ function ReminderPanel({ onCancel, onSent }: { onCancel: () => void; onSent: (co
                         <p className="text-sm font-semibold text-[#22D3EE]">Campanha de lembrete</p>
                         <h2 className="mt-2 text-2xl font-bold">Enviar e-mails para convidados</h2>
                         <p className="mt-2 max-w-2xl text-sm leading-6 text-[#94A3B8]">
-                            Selecione quem ainda precisa confirmar, ajuste o texto e simule o disparo. Em producao isso
-                            pode virar uma fila de e-mails real.
+                            Escolha um evento, defina o remetente e selecione os convidados que devem receber o
+                            lembrete.
                         </p>
                     </div>
                     <ActionButton variant="secondary" onClick={onCancel}>
@@ -1771,13 +1880,54 @@ function ReminderPanel({ onCancel, onSent }: { onCancel: () => void; onSent: (co
                     </ActionButton>
                 </div>
 
+                <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                    <label>
+                        <span className="mb-2 block text-sm text-[#CBD5E1]">Evento</span>
+                        <select
+                            value={selectedEventId ?? ''}
+                            onChange={(event) => {
+                                onEventChange(event.target.value);
+                            }}
+                            className="field-control"
+                        >
+                            {events.length === 0 ? <option value="">Nenhum evento salvo</option> : null}
+                            {events.map((event) => (
+                                <option key={event.id} value={event.id}>
+                                    {event.title}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label>
+                        <span className="mb-2 block text-sm text-[#CBD5E1]">E-mail de quem envia</span>
+                        <input
+                            type="email"
+                            value={fromEmail}
+                            onChange={(event) => {
+                                setFromEmail(event.target.value);
+                            }}
+                            placeholder="seu@email.com"
+                            className="field-control"
+                        />
+                    </label>
+                </div>
+
                 <div className="mt-6 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
                     <Panel title="Destinatarios">
+                        {isLoadingGuests ? (
+                            <p className="mb-4 text-sm text-[#94A3B8]">Carregando convidados do evento...</p>
+                        ) : null}
+                        {guestsError ? <p className="mb-4 text-sm text-[#FCA5A5]">{guestsError}</p> : null}
+                        {!isLoadingGuests && reminderGuests.length === 0 ? (
+                            <p className="mb-4 text-sm text-[#FDE68A]">
+                                Este evento ainda nao tem convidados salvos. Adicione e-mails manualmente abaixo.
+                            </p>
+                        ) : null}
                         <div className="mb-4 flex flex-wrap gap-2">
                             <ActionButton
                                 variant="secondary"
                                 onClick={() => {
-                                    setSelectedEmails(reminderGuests.map((guest) => guest.email));
+                                    selectEmails(reminderGuests.map((guest) => guest.email));
                                 }}
                             >
                                 Selecionar todos
@@ -1785,7 +1935,7 @@ function ReminderPanel({ onCancel, onSent }: { onCancel: () => void; onSent: (co
                             <ActionButton
                                 variant="secondary"
                                 onClick={() => {
-                                    setSelectedEmails(pendingRecipientEmails);
+                                    selectEmails(pendingRecipientEmails);
                                 }}
                             >
                                 Apenas pendentes
@@ -1877,9 +2027,13 @@ function ReminderPanel({ onCancel, onSent }: { onCancel: () => void; onSent: (co
                 </div>
                 <h3 className="mt-5 text-xl font-bold">Resumo do envio</h3>
                 <p className="mt-2 text-sm leading-6 text-[#94A3B8]">
-                    {String(selectedEmails.length)} destinatario(s) selecionado(s). O envio aqui e simulado, mas a
-                    experiencia ja fica pronta para plugar uma fila real.
+                    {String(selectedEmails.length)} destinatario(s) selecionado(s) para{' '}
+                    {selectedEvent?.title ?? 'um evento selecionado'}.
                 </p>
+                <div className="mt-5 rounded-2xl border border-[#263247] bg-[#121827] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#94A3B8]">Remetente</p>
+                    <p className="mt-2 text-sm text-white">{fromEmail || 'Informe um e-mail'}</p>
+                </div>
                 <div className="mt-5 rounded-2xl border border-[#263247] bg-[#121827] p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#94A3B8]">Assunto</p>
                     <p className="mt-2 text-sm text-white">{subject}</p>
@@ -1897,6 +2051,11 @@ function ReminderPanel({ onCancel, onSent }: { onCancel: () => void; onSent: (co
                         </>
                     )}
                 </ActionButton>
+                {!canSend ? (
+                    <p className="mt-3 text-xs leading-5 text-[#FDE68A]">
+                        Selecione um evento, informe um remetente valido e escolha pelo menos um destinatario.
+                    </p>
+                ) : null}
             </aside>
         </motion.section>
     );
