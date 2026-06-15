@@ -70,7 +70,7 @@ final class GoApiProxyController extends Controller
         }
 
         return response($upstream->body(), $upstream->status())
-            ->header('Content-Type', $upstream->header('Content-Type', 'application/json'));
+            ->header('Content-Type', $upstream->header('Content-Type'));
     }
 
     private function isAllowed(string $method, string $path): bool
