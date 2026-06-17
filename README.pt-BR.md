@@ -1,12 +1,12 @@
 # Invitely
 
-Invitely e uma plataforma open source para convites digitais, RSVP, check-in por QR Code e gerenciamento de eventos. O projeto usa Laravel 12 no backend, React com TypeScript no frontend e Docker com Nginx, PHP-FPM, PostgreSQL, Redis, Mailpit e MinIO.
+Invitely e uma plataforma open source para convites digitais, RSVP, check-in por QR Code e gerenciamento de eventos. O projeto usa Laravel 12 no backend, React com TypeScript no frontend e Docker com Nginx, PHP-FPM, PostgreSQL, Redis, Mailpit e MinIO. O Laravel tambem pode atuar como BFF/proxy para uma API Go complementar, usada para fluxos operacionais como eventos, convidados, orcamento, presentes, analytics e lembretes.
 
 ## Como o projeto funciona
 
 O Nginx recebe as requisicoes em `http://localhost:8082` e encaminha PHP para o container `app`, que roda Laravel em PHP 8.4-FPM. O Laravel entrega a SPA React pelo Blade em `resources/views/app.blade.php`; o React assume as rotas publicas, login/cadastro e dashboard no navegador.
 
-As rotas da API ficam em `routes/api.php` com prefixo `/api/v1`. A pagina publica busca dados em `/api/v1/events/{slug}` e registra RSVP em `/api/v1/events/{slug}/rsvp`. Para o portfolio publicado na Vercel, o login/cadastro usa Supabase Auth e o dashboard em `/admin` muda conforme o papel salvo no metadata do usuario.
+As rotas da API ficam em `routes/api.php` com prefixo `/api/v1`. A pagina publica busca dados em `/api/v1/events/{slug}` e registra RSVP em `/api/v1/events/{slug}/rsvp`. O painel tambem pode chamar a API Go por meio do proxy Laravel em `/api/v1/go/*`. Para o portfolio publicado na Vercel, o login/cadastro usa Supabase Auth e o dashboard em `/admin` muda conforme o papel salvo no metadata do usuario.
 
 ## Fluxo de portfolio
 
@@ -46,7 +46,9 @@ O app foi redesenhado para uma estética dark premium de SaaS moderno:
 - Dashboard com sidebar desktop, bottom navigation mobile, métricas, gráfico de linha e distribuição de RSVP.
 - Eventos em cards com imagem, status, data, local, confirmados, taxa de RSVP e CTA.
 - Convite público com imagem de fundo, overlay escuro, countdown, formulário confortável e QR Code.
-- RSVP publico sem login com codigo de 6 digitos por e-mail, expiracao de 10 minutos e atualizacao de convidados/RSVP.
+- Link publico de convite por evento, copiavel no card e em `Gerenciar evento`.
+- RSVP publico sem login com suporte a link compartilhavel por e-mail direto e codigo de 6 digitos por e-mail para validacao reforcada.
+- Templates/fundos aplicaveis por evento, refletidos no card do painel e no convite publico.
 - Paleta baseada em `#060B1A`, `#0B0F1A`, `#121827`, `#263247`, `#8B5CF6`, `#22D3EE` e `#0EA5E9`.
 
 ## Servicos Docker
