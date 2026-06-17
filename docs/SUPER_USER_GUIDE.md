@@ -13,7 +13,7 @@ VITE_SUPER_USER_EMAIL=admin@invitely.local
 VITE_SUPER_USER_PASSWORD=admin123456
 ```
 
-2. **Vá para login:** `http://localhost:5173/login`
+2. **Vá para login:** `http://localhost:5174/login`
 
 3. **Clique "Login"** e use:
     - **E-mail:** `admin@invitely.local`
@@ -191,7 +191,7 @@ GET  /api/v1/admin/activity     → atividade recente
 
 ```
 1. npm run dev
-2. Vai para http://localhost:5173/login
+2. Vai para http://localhost:5174/login
 3. Clica "Login"
 4. E-mail: admin@invitely.local
 5. Senha: admin123456

@@ -178,6 +178,43 @@ final class AuthController extends Controller
         return response()->json(['data' => $request->user()]);
     }
 
+    public function updateMe(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'settings' => ['required', 'array'],
+            'settings.organization' => ['nullable', 'string', 'max:120'],
+            'settings.timezone' => ['required', 'timezone'],
+            'settings.language' => ['required', Rule::in(['pt-BR', 'en-US', 'es'])],
+            'notification_preferences' => ['required', 'array'],
+            'notification_preferences.emailRsvp' => ['required', 'boolean'],
+            'notification_preferences.emailReminders' => ['required', 'boolean'],
+            'notification_preferences.weeklySummary' => ['required', 'boolean'],
+            'notification_preferences.marketing' => ['required', 'boolean'],
+            'notification_preferences.quietHoursStart' => ['required', 'date_format:H:i'],
+            'notification_preferences.quietHoursEnd' => ['required', 'date_format:H:i'],
+            'privacy_preferences' => ['required', 'array'],
+            'privacy_preferences.profileVisibility' => ['required', Rule::in(['team', 'private'])],
+            'privacy_preferences.showEmailToGuests' => ['required', 'boolean'],
+            'privacy_preferences.allowGuestMessages' => ['required', 'boolean'],
+            'privacy_preferences.analyticsConsent' => ['required', 'boolean'],
+            'privacy_preferences.dataRetention' => ['required', Rule::in(['12_months', '24_months', 'indefinite'])],
+        ]);
+
+        $user->update($validated);
+
+        return response()->json([
+            'data' => [
+                'user' => $this->serializeUser($user->refresh()),
+            ],
+            'message' => 'Configuracoes atualizadas com sucesso.',
+        ]);
+    }
+
     public function logout(Request $request): JsonResponse
     {
         $request->user()?->currentAccessToken()?->delete();
@@ -211,7 +248,27 @@ final class AuthController extends Controller
                 'email' => $user->email,
                 'role' => $user->role,
                 'tenant_id' => $user->tenant_id,
+                'settings' => $user->settings,
+                'notification_preferences' => $user->notification_preferences,
+                'privacy_preferences' => $user->privacy_preferences,
             ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeUser(User $user): array
+    {
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'role' => $user->role,
+            'tenant_id' => $user->tenant_id,
+            'settings' => $user->settings,
+            'notification_preferences' => $user->notification_preferences,
+            'privacy_preferences' => $user->privacy_preferences,
         ];
     }
 

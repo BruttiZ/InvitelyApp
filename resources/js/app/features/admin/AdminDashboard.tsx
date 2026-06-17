@@ -32,7 +32,15 @@ import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { AuthUser, UserRole, clearSession, getStoredSession, roleLabel } from '../../auth/session';
+import {
+    AuthUser,
+    UserRole,
+    clearSession,
+    getStoredSession,
+    resolveActiveRole,
+    roleLabel,
+    storeSession,
+} from '../../auth/session';
 import { apiV1Url, authHeaders } from '../../../lib/api';
 import { CreateEventForm, CreatedEventSummary } from './CreateEventForm';
 
@@ -81,6 +89,17 @@ type GuestRow = {
     status: string;
 };
 
+type StoredPublicRsvp = {
+    eventId: string;
+    eventSlug: string;
+    name: string;
+    email: string;
+    status: 'accepted' | 'declined';
+    companions: number;
+    message: string;
+    respondedAt: string;
+};
+
 type GuestResource = {
     id?: string | number;
     name?: string;
@@ -115,6 +134,42 @@ type GiftWish = {
     url: string;
     reserved: boolean;
     reservedBy: string;
+};
+
+type AccountSettings = {
+    organization: string;
+    timezone: string;
+    language: 'pt-BR' | 'en-US' | 'es';
+};
+
+type NotificationPreferences = {
+    emailRsvp: boolean;
+    emailReminders: boolean;
+    weeklySummary: boolean;
+    marketing: boolean;
+    quietHoursStart: string;
+    quietHoursEnd: string;
+};
+
+type PrivacyPreferences = {
+    profileVisibility: 'team' | 'private';
+    showEmailToGuests: boolean;
+    allowGuestMessages: boolean;
+    analyticsConsent: boolean;
+    dataRetention: '12_months' | '24_months' | 'indefinite';
+};
+
+type UserSettingsPayload = {
+    name: string;
+    email: string;
+    settings: AccountSettings;
+    notification_preferences: NotificationPreferences;
+    privacy_preferences: PrivacyPreferences;
+};
+
+type InviteContext = {
+    event: CreatedEventSummary;
+    isHostPreview: boolean;
 };
 
 type AdminEventResource = {
@@ -357,6 +412,18 @@ const templateOptions: TemplateOption[] = [
     },
 ];
 
+function findTemplate(templateId?: string): TemplateOption {
+    return templateOptions.find((template) => template.id === templateId) ?? defaultTemplate;
+}
+
+function applyTemplateToEvent(event: CreatedEventSummary, template: TemplateOption): CreatedEventSummary {
+    return {
+        ...event,
+        templateId: template.id,
+        image: template.image,
+    };
+}
+
 const tenants = [
     { name: 'Invitely Produção', plan: 'community', events: '12', status: 'Saudavel' },
     { name: 'Aurora Studio', plan: 'pro', events: '28', status: 'Saudavel' },
@@ -409,6 +476,29 @@ const defaultGiftWishes: GiftWish[] = [
     },
 ];
 
+const defaultAccountSettings: AccountSettings = {
+    organization: 'Invitely',
+    timezone: 'America/Sao_Paulo',
+    language: 'pt-BR',
+};
+
+const defaultNotificationPreferences: NotificationPreferences = {
+    emailRsvp: true,
+    emailReminders: true,
+    weeklySummary: true,
+    marketing: false,
+    quietHoursStart: '22:00',
+    quietHoursEnd: '08:00',
+};
+
+const defaultPrivacyPreferences: PrivacyPreferences = {
+    profileVisibility: 'team',
+    showEmailToGuests: false,
+    allowGuestMessages: true,
+    analyticsConsent: true,
+    dataRetention: '24_months',
+};
+
 function readStoredArray<T>(key: string, fallback: T[]): T[] {
     const raw = window.localStorage.getItem(key);
 
@@ -425,6 +515,150 @@ function readStoredArray<T>(key: string, fallback: T[]): T[] {
 
 function writeStoredArray(key: string, value: unknown[]): void {
     window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function readStoredObject<T>(key: string, fallback: T): T {
+    const raw = window.localStorage.getItem(key);
+
+    if (!raw) {
+        return fallback;
+    }
+
+    try {
+        return JSON.parse(raw) as T;
+    } catch {
+        return fallback;
+    }
+}
+
+function writeStoredObject(key: string, value: unknown): void {
+    window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function readStoredPublicRsvps(): StoredPublicRsvp[] {
+    const raw = window.localStorage.getItem('invitely.publicRsvps');
+
+    if (!raw) {
+        return [];
+    }
+
+    try {
+        const parsed = JSON.parse(raw) as StoredPublicRsvp[];
+
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function userSettingsKey(userId: string | number): string {
+    return `invitely.userSettings.${String(userId)}`;
+}
+
+function normalizeAccountSettings(value: unknown): AccountSettings {
+    const settings = typeof value === 'object' && value !== null ? (value as Partial<AccountSettings>) : {};
+    const language =
+        settings.language === 'pt-BR' || settings.language === 'en-US' || settings.language === 'es'
+            ? settings.language
+            : defaultAccountSettings.language;
+
+    return {
+        organization:
+            typeof settings.organization === 'string' ? settings.organization : defaultAccountSettings.organization,
+        timezone: typeof settings.timezone === 'string' ? settings.timezone : defaultAccountSettings.timezone,
+        language,
+    };
+}
+
+function normalizeNotificationPreferences(value: unknown): NotificationPreferences {
+    const settings = typeof value === 'object' && value !== null ? (value as Partial<NotificationPreferences>) : {};
+
+    return {
+        emailRsvp:
+            typeof settings.emailRsvp === 'boolean' ? settings.emailRsvp : defaultNotificationPreferences.emailRsvp,
+        emailReminders:
+            typeof settings.emailReminders === 'boolean'
+                ? settings.emailReminders
+                : defaultNotificationPreferences.emailReminders,
+        weeklySummary:
+            typeof settings.weeklySummary === 'boolean'
+                ? settings.weeklySummary
+                : defaultNotificationPreferences.weeklySummary,
+        marketing:
+            typeof settings.marketing === 'boolean' ? settings.marketing : defaultNotificationPreferences.marketing,
+        quietHoursStart:
+            typeof settings.quietHoursStart === 'string'
+                ? settings.quietHoursStart
+                : defaultNotificationPreferences.quietHoursStart,
+        quietHoursEnd:
+            typeof settings.quietHoursEnd === 'string'
+                ? settings.quietHoursEnd
+                : defaultNotificationPreferences.quietHoursEnd,
+    };
+}
+
+function normalizePrivacyPreferences(value: unknown): PrivacyPreferences {
+    const settings = typeof value === 'object' && value !== null ? (value as Partial<PrivacyPreferences>) : {};
+    const profileVisibility = settings.profileVisibility === 'private' ? 'private' : 'team';
+    const dataRetention =
+        settings.dataRetention === '12_months' ||
+        settings.dataRetention === '24_months' ||
+        settings.dataRetention === 'indefinite'
+            ? settings.dataRetention
+            : defaultPrivacyPreferences.dataRetention;
+
+    return {
+        profileVisibility,
+        showEmailToGuests:
+            typeof settings.showEmailToGuests === 'boolean'
+                ? settings.showEmailToGuests
+                : defaultPrivacyPreferences.showEmailToGuests,
+        allowGuestMessages:
+            typeof settings.allowGuestMessages === 'boolean'
+                ? settings.allowGuestMessages
+                : defaultPrivacyPreferences.allowGuestMessages,
+        analyticsConsent:
+            typeof settings.analyticsConsent === 'boolean'
+                ? settings.analyticsConsent
+                : defaultPrivacyPreferences.analyticsConsent,
+        dataRetention,
+    };
+}
+
+function uniqueEventsById(events: CreatedEventSummary[]): CreatedEventSummary[] {
+    const seen = new Set<string>();
+
+    return events.filter((event) => {
+        if (seen.has(event.id)) {
+            return false;
+        }
+
+        seen.add(event.id);
+
+        return true;
+    });
+}
+
+function uniqueGuestsByEmail(guests: GuestRow[]): GuestRow[] {
+    const seen = new Set<string>();
+
+    return guests.filter((guest) => {
+        const key = guest.email.trim().toLowerCase();
+
+        if (!key || seen.has(key)) {
+            return false;
+        }
+
+        seen.add(key);
+
+        return true;
+    });
+}
+
+function countAcceptedPublicRsvps(event: CreatedEventSummary): number {
+    return readStoredPublicRsvps().filter(
+        (rsvp) => (rsvp.eventId === event.id || rsvp.eventSlug === event.slug) && rsvp.status === 'accepted',
+    ).length;
 }
 
 function navigationFor(user: AuthUser): NavigationItem[] {
@@ -519,12 +753,14 @@ function expectedRoleForPath(pathname: string): UserRole | null {
 export function AdminDashboard() {
     const navigate = useNavigate();
     const location = useLocation();
-    const session = getStoredSession();
+    const [session, setSession] = useState(() => getStoredSession());
     const user = session?.user;
     const [view, setView] = useState<DashboardView>('overview');
     const [isCreatingEvent, setIsCreatingEvent] = useState(false);
     const [isSendingReminder, setIsSendingReminder] = useState(false);
-    const [createdEvents, setCreatedEvents] = useState<CreatedEventSummary[]>([]);
+    const [createdEvents, setCreatedEvents] = useState<CreatedEventSummary[]>(() =>
+        readStoredArray('invitely.createdEvents', []),
+    );
     const [eventOverrides, setEventOverrides] = useState<CreatedEventSummary[]>(() =>
         readStoredArray('invitely.eventOverrides', []),
     );
@@ -540,11 +776,20 @@ export function AdminDashboard() {
     const [reminderEventId, setReminderEventId] = useState('');
     const [activeTemplate, setActiveTemplate] = useState<TemplateOption>(defaultTemplate);
     const [toast, setToast] = useState('Dashboard carregado. Explore os modulos do produto.');
+    const activeRole = session ? resolveActiveRole(session.user.role, session.activeRole) : undefined;
+    const canManageEvents = user?.role === 'owner';
+    const canSwitchToGuest = user?.role === 'owner';
 
     const expectedRole = expectedRoleForPath(location.pathname);
-    const navigation = useMemo(() => (user ? navigationFor(user) : []), [user]);
-    const actions = useMemo(() => (user ? actionsFor(user) : []), [user]);
-    const shouldLoadAdminEvents = user?.role === 'owner' && Boolean(session?.token);
+    const navigation = useMemo(
+        () => (user && activeRole ? navigationFor({ ...user, role: activeRole }) : []),
+        [activeRole, user],
+    );
+    const actions = useMemo(
+        () => (user && activeRole ? actionsFor({ ...user, role: activeRole }) : []),
+        [activeRole, user],
+    );
+    const shouldLoadAdminEvents = canManageEvents && Boolean(session?.token);
     const eventsQuery = useQuery({
         queryKey: ['admin-events', session?.user.id],
         enabled: shouldLoadAdminEvents,
@@ -571,11 +816,29 @@ export function AdminDashboard() {
     const events = useMemo(() => {
         const overrides = new Map(eventOverrides.map((event) => [event.id, event]));
 
-        return [...createdEvents, ...(eventsQuery.data ?? [])]
+        return uniqueEventsById([...createdEvents, ...(eventsQuery.data ?? [])])
             .filter((event) => !deletedEventIds.includes(event.id))
             .map((event) => overrides.get(event.id) ?? event);
     }, [createdEvents, deletedEventIds, eventOverrides, eventsQuery.data]);
     const planningEventId = events[0]?.id;
+    const storedPublicPreviewEvent = readStoredObject<CreatedEventSummary | null>('invitely.publicPreviewEvent', null);
+    const publicPreviewEvent = events[0] ?? storedPublicPreviewEvent;
+    const publicInvitePath = `/events/${publicPreviewEvent?.slug ?? 'invitely-launch-night'}`;
+    const fallbackInviteEvent: CreatedEventSummary = initialEventCards[0] ?? {
+        id: 'fallback-invite',
+        slug: 'invitely-launch-night',
+        title: 'Convite Invitely',
+        date: 'Data a definir',
+        place: 'Local a definir',
+        status: 'Rascunho',
+        confirmed: 0,
+        rsvp: 0,
+        image: '',
+    };
+    const inviteContext: InviteContext = {
+        event: publicPreviewEvent ?? fallbackInviteEvent,
+        isHostPreview: activeRole === 'guest' && user?.role === 'owner',
+    };
     const activeReminderEventId = reminderEventId || planningEventId;
     const planningGuestsQuery = useQuery({
         queryKey: ['event-guests', planningEventId],
@@ -625,6 +888,16 @@ export function AdminDashboard() {
     });
     const reminderGuests =
         activeReminderEventId === planningEventId ? (planningGuestsQuery.data ?? []) : (reminderGuestsQuery.data ?? []);
+    const publicRsvpGuests = readStoredPublicRsvps()
+        .filter((rsvp) => events.some((event) => event.id === rsvp.eventId || event.slug === rsvp.eventSlug))
+        .map(
+            (rsvp): GuestRow => ({
+                name: rsvp.name || rsvp.email,
+                email: rsvp.email,
+                status: rsvp.status === 'accepted' ? 'Confirmado' : 'Recusado',
+            }),
+        );
+    const planningGuests = uniqueGuestsByEmail([...(planningGuestsQuery.data ?? []), ...publicRsvpGuests]);
     const isLoadingReminderGuests =
         activeReminderEventId === planningEventId ? planningGuestsQuery.isLoading : reminderGuestsQuery.isLoading;
     const reminderGuestsError =
@@ -674,15 +947,25 @@ export function AdminDashboard() {
         },
     });
 
-    if (!session || !user) {
+    if (!session || !user || !activeRole) {
         return <Navigate to="/login" replace />;
     }
 
-    if (expectedRole && expectedRole !== user.role) {
-        return <Navigate to={destinations[user.role]} replace />;
+    const currentSession = session;
+    const currentUser = user;
+
+    if (expectedRole && expectedRole !== activeRole) {
+        return <Navigate to={destinations[activeRole]} replace />;
     }
 
-    const copy = profileCopy[user.role];
+    const copy = profileCopy[activeRole];
+    const headerTitle = activeRole === 'guest' ? inviteContext.event.title : copy.title;
+    const headerDescription =
+        activeRole === 'guest'
+            ? `${inviteContext.event.date} - ${inviteContext.event.place}${
+                  inviteContext.isHostPreview ? '. Voce esta visualizando como anfitriao.' : ''
+              }`
+            : copy.description;
 
     function notify(message: string) {
         setToast(message);
@@ -693,14 +976,37 @@ export function AdminDashboard() {
         void navigate('/login');
     }
 
+    function switchRole(nextRole: UserRole) {
+        const resolvedRole = resolveActiveRole(currentUser.role, nextRole);
+        const nextSession = {
+            ...currentSession,
+            activeRole: resolvedRole,
+        };
+        storeSession(nextSession);
+        setSession(nextSession);
+        setIsCreatingEvent(false);
+        setIsSendingReminder(false);
+        setView('overview');
+        notify(`Modo ${roleLabel(resolvedRole)} ativado.`);
+        void navigate(destinations[resolvedRole]);
+    }
+
     function runAction(item: ActionItem) {
-        if (user?.role === 'owner' && item.label === 'Criar evento') {
+        if (inviteContext.isHostPreview && (item.label === 'Confirmar presenca' || item.label === 'Enviar recado')) {
+            notify(
+                'Voce esta vendo este convite como anfitriao. RSVP e recados ficam bloqueados para o dono do evento.',
+            );
+
+            return;
+        }
+
+        if (activeRole === 'owner' && canManageEvents && item.label === 'Criar evento') {
             setIsCreatingEvent(true);
             setIsSendingReminder(false);
             setView('events');
         }
 
-        if (user?.role === 'owner' && item.label === 'Enviar lembrete') {
+        if (activeRole === 'owner' && canManageEvents && item.label === 'Enviar lembrete') {
             setIsSendingReminder(true);
             setIsCreatingEvent(false);
             setView('guests');
@@ -719,9 +1025,40 @@ export function AdminDashboard() {
                         </div>
                         <div>
                             <p className="font-bold">Invitely</p>
-                            <p className="text-xs text-[#94A3B8]">{roleLabel(user.role)}</p>
+                            <p className="text-xs text-[#94A3B8]">{roleLabel(activeRole)}</p>
                         </div>
                     </div>
+
+                    {canSwitchToGuest ? (
+                        <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-[#263247] bg-[#121827] p-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    switchRole('owner');
+                                }}
+                                className={
+                                    activeRole === 'owner'
+                                        ? 'h-9 rounded-xl bg-[#8B5CF6] text-xs font-bold text-white'
+                                        : 'h-9 rounded-xl text-xs font-semibold text-[#94A3B8] transition hover:bg-[#1A2335] hover:text-white'
+                                }
+                            >
+                                Organizar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    switchRole('guest');
+                                }}
+                                className={
+                                    activeRole === 'guest'
+                                        ? 'h-9 rounded-xl bg-[#20A8E8] text-xs font-bold text-white'
+                                        : 'h-9 rounded-xl text-xs font-semibold text-[#94A3B8] transition hover:bg-[#1A2335] hover:text-white'
+                                }
+                            >
+                                Participar
+                            </button>
+                        </div>
+                    ) : null}
 
                     <nav className="mt-8 grid gap-1">
                         {navigation.map((item) => {
@@ -752,7 +1089,12 @@ export function AdminDashboard() {
 
                     <div className="mt-auto grid gap-2">
                         <Link
-                            to="/events/invitely-launch-night"
+                            to={publicInvitePath}
+                            onClick={() => {
+                                if (publicPreviewEvent) {
+                                    writeStoredObject('invitely.publicPreviewEvent', publicPreviewEvent);
+                                }
+                            }}
                             className="flex h-11 items-center gap-3 rounded-xl px-3 text-sm text-[#CBD5E1] transition hover:bg-[#121827] hover:text-white"
                         >
                             <Sparkles className="h-4 w-4" />
@@ -780,8 +1122,8 @@ export function AdminDashboard() {
                                 {copy.roleName}
                             </span>
                             <p className="mt-4 text-sm text-[#94A3B8]">{copy.eyebrow}</p>
-                            <h1 className="mt-1 text-2xl font-extrabold tracking-normal sm:text-3xl">{copy.title}</h1>
-                            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#94A3B8]">{copy.description}</p>
+                            <h1 className="mt-1 text-2xl font-extrabold tracking-normal sm:text-3xl">{headerTitle}</h1>
+                            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#94A3B8]">{headerDescription}</p>
                         </div>
 
                         <div className="flex flex-wrap gap-2">
@@ -792,6 +1134,10 @@ export function AdminDashboard() {
                                     <ActionButton
                                         key={item.label}
                                         variant={item.variant ?? 'primary'}
+                                        disabled={
+                                            inviteContext.isHostPreview &&
+                                            (item.label === 'Confirmar presenca' || item.label === 'Enviar recado')
+                                        }
                                         onClick={() => {
                                             runAction(item);
                                         }}
@@ -814,9 +1160,18 @@ export function AdminDashboard() {
                                     notify('Criacao de evento cancelada.');
                                 }}
                                 onCreated={(event) => {
-                                    setCreatedEvents((current) => [event, ...current]);
+                                    const templatedEvent = applyTemplateToEvent(event, activeTemplate);
+                                    setCreatedEvents((current) => {
+                                        const next = uniqueEventsById([
+                                            templatedEvent,
+                                            ...current.filter((item) => item.id !== templatedEvent.id),
+                                        ]);
+                                        writeStoredArray('invitely.createdEvents', next);
+
+                                        return next;
+                                    });
                                     setIsCreatingEvent(false);
-                                    notify(`${event.title} criado e adicionado ao painel.`);
+                                    notify(`${templatedEvent.title} criado com o template ${activeTemplate.name}.`);
                                 }}
                             />
                         </div>
@@ -842,13 +1197,13 @@ export function AdminDashboard() {
                         />
                     ) : (
                         <DashboardContent
-                            role={user.role}
+                            role={activeRole}
                             view={view}
                             notify={notify}
                             events={events}
                             isLoadingEvents={eventsQuery.isLoading}
                             eventsError={eventsQuery.error?.message}
-                            guests={planningGuestsQuery.data ?? []}
+                            guests={planningGuests}
                             isLoadingGuests={planningGuestsQuery.isLoading}
                             guestsError={planningGuestsQuery.error?.message}
                             planningEventId={planningEventId}
@@ -858,6 +1213,17 @@ export function AdminDashboard() {
                             isLoadingGifts={giftsQuery.isLoading}
                             budgetError={budgetQuery.error?.message}
                             giftsError={giftsQuery.error?.message}
+                            user={user}
+                            token={session.token}
+                            inviteContext={inviteContext}
+                            onSessionUserChange={(updatedUser) => {
+                                const nextSession = {
+                                    ...session,
+                                    user: updatedUser,
+                                };
+                                storeSession(nextSession);
+                                setSession(nextSession);
+                            }}
                             onUpdateEvent={async (event) => {
                                 if (!session.token) {
                                     throw new Error('Sessao expirada. Faca login novamente.');
@@ -883,10 +1249,22 @@ export function AdminDashboard() {
                                 }
 
                                 const payload = (await response.json()) as { data?: AdminEventResource };
-                                const updatedEvent = payload.data ? mapEventResource(payload.data) : event;
-                                setCreatedEvents((current) =>
-                                    current.map((item) => (item.id === updatedEvent.id ? updatedEvent : item)),
-                                );
+                                const updatedEvent = payload.data
+                                    ? {
+                                          ...mapEventResource(payload.data),
+                                          status: event.status,
+                                          image: event.image,
+                                          templateId: event.templateId,
+                                      }
+                                    : event;
+                                setCreatedEvents((current) => {
+                                    const next = uniqueEventsById(
+                                        current.map((item) => (item.id === updatedEvent.id ? updatedEvent : item)),
+                                    );
+                                    writeStoredArray('invitely.createdEvents', next);
+
+                                    return next;
+                                });
                                 setEventOverrides((current) => {
                                     const next = [
                                         updatedEvent,
@@ -896,6 +1274,7 @@ export function AdminDashboard() {
 
                                     return next;
                                 });
+                                writeStoredObject('invitely.publicPreviewEvent', updatedEvent);
                                 void eventsQuery.refetch();
                                 notify(`${updatedEvent.title} atualizado na API.`);
                             }}
@@ -913,7 +1292,18 @@ export function AdminDashboard() {
                                     throw await responseError(response, 'Nao foi possivel deletar o evento.');
                                 }
 
-                                setCreatedEvents((current) => current.filter((event) => event.id !== eventId));
+                                setCreatedEvents((current) => {
+                                    const next = current.filter((event) => event.id !== eventId);
+                                    writeStoredArray('invitely.createdEvents', next);
+
+                                    return next;
+                                });
+                                setEventOverrides((current) => {
+                                    const next = current.filter((event) => event.id !== eventId);
+                                    writeStoredArray('invitely.eventOverrides', next);
+
+                                    return next;
+                                });
                                 setDeletedEventIds((current) => {
                                     const next = current.includes(eventId) ? current : [...current, eventId];
                                     writeStoredArray('invitely.deletedEventIds', next);
@@ -1040,6 +1430,10 @@ function DashboardContent({
     isLoadingGifts,
     budgetError,
     giftsError,
+    user,
+    token,
+    inviteContext,
+    onSessionUserChange,
     onUpdateEvent,
     onDeleteEvent,
     onAddBudgetItem,
@@ -1065,6 +1459,10 @@ function DashboardContent({
     isLoadingGifts: boolean;
     budgetError?: string;
     giftsError?: string;
+    user: AuthUser;
+    token: string;
+    inviteContext: InviteContext;
+    onSessionUserChange: (user: AuthUser) => void;
     onUpdateEvent: (event: CreatedEventSummary) => Promise<void>;
     onDeleteEvent: (eventId: string) => Promise<void>;
     onAddBudgetItem: (item: BudgetItem) => Promise<void>;
@@ -1075,7 +1473,7 @@ function DashboardContent({
     onApplyTemplate: (template: TemplateOption) => void;
 }) {
     if (view === 'overview') {
-        return <Overview role={role} notify={notify} />;
+        return <Overview role={role} inviteContext={inviteContext} notify={notify} />;
     }
 
     if (view === 'events') {
@@ -1083,7 +1481,7 @@ function DashboardContent({
             <EventsView
                 role={role}
                 notify={notify}
-                events={role === 'owner' ? events : initialEventCards}
+                events={events.length > 0 ? events : initialEventCards}
                 isLoading={isLoadingEvents}
                 error={eventsError}
                 onUpdateEvent={onUpdateEvent}
@@ -1142,7 +1540,7 @@ function DashboardContent({
     }
 
     if (view === 'checkin') {
-        return <CheckInView role={role} notify={notify} />;
+        return <CheckInView role={role} inviteContext={inviteContext} notify={notify} />;
     }
 
     if (view === 'tenants') {
@@ -1181,7 +1579,7 @@ function DashboardContent({
     }
 
     if (view === 'rsvp') {
-        return <RsvpView notify={notify} />;
+        return <RsvpView inviteContext={inviteContext} notify={notify} />;
     }
 
     if (view === 'gifts') {
@@ -1200,7 +1598,13 @@ function DashboardContent({
                 title="Presentes"
                 icon={Gift}
                 notify={notify}
-                items={['Pix dos anfitrioes', 'Lista online', 'Mensagem carinhosa']}
+                items={[
+                    `Lista de presentes - ${inviteContext.event.title}`,
+                    `Mensagem para ${inviteContext.event.place}`,
+                    inviteContext.isHostPreview
+                        ? 'Presentes bloqueados para anfitriao'
+                        : 'Enviar carinho aos anfitrioes',
+                ]}
             />
         );
     }
@@ -1211,17 +1615,35 @@ function DashboardContent({
         );
     }
 
-    return (
-        <CardsModule
-            title="Configuracoes"
-            icon={Settings2}
-            notify={notify}
-            items={['Perfil', 'Notificacoes', 'Privacidade']}
-        />
-    );
+    return <SettingsView user={user} token={token} notify={notify} onSessionUserChange={onSessionUserChange} />;
 }
 
-function Overview({ role, notify }: { role: UserRole; notify: (message: string) => void }) {
+function Overview({
+    role,
+    inviteContext,
+    notify,
+}: {
+    role: UserRole;
+    inviteContext: InviteContext;
+    notify: (message: string) => void;
+}) {
+    const guestRsvpValue = inviteContext.isHostPreview
+        ? 'Anfitriao'
+        : inviteContext.event.rsvp > 0
+          ? 'Sim'
+          : 'Pendente';
+    const guestRsvpTrend = inviteContext.isHostPreview
+        ? 'sem RSVP'
+        : inviteContext.event.rsvp > 0
+          ? 'confirmado'
+          : 'aguardando';
+    const guestCompanionValue = inviteContext.isHostPreview ? '-' : '0';
+    const guestQrValue = inviteContext.isHostPreview ? 'Preview' : inviteContext.event.rsvp > 0 ? 'QR' : 'Bloqueado';
+    const guestQrTrend = inviteContext.isHostPreview
+        ? 'dono do evento'
+        : inviteContext.event.rsvp > 0
+          ? 'pronto'
+          : 'apos confirmar';
     const metrics: MetricItem[] =
         role === 'platform_admin'
             ? [
@@ -1238,10 +1660,28 @@ function Overview({ role, notify }: { role: UserRole; notify: (message: string) 
               ]
             : role === 'guest'
               ? [
-                    { label: 'RSVP', value: 'Sim', trend: 'confirmado', icon: CheckCircle2, color: '#22C55E' },
-                    { label: 'Acompanhantes', value: '2', trend: 'liberado', icon: UsersRound, color: '#22D3EE' },
-                    { label: 'Entrada', value: 'QR', trend: 'pronto', icon: QrCode, color: '#A78BFA' },
-                    { label: 'Recados', value: '3', trend: 'novos', icon: Bell, color: '#F59E0B' },
+                    {
+                        label: 'RSVP',
+                        value: guestRsvpValue,
+                        trend: guestRsvpTrend,
+                        icon: CheckCircle2,
+                        color: '#22C55E',
+                    },
+                    {
+                        label: 'Acompanhantes',
+                        value: guestCompanionValue,
+                        trend: inviteContext.isHostPreview ? 'bloqueado' : 'disponivel',
+                        icon: UsersRound,
+                        color: '#22D3EE',
+                    },
+                    { label: 'Entrada', value: guestQrValue, trend: guestQrTrend, icon: QrCode, color: '#A78BFA' },
+                    {
+                        label: 'Recados',
+                        value: inviteContext.isHostPreview ? '-' : '0',
+                        trend: inviteContext.isHostPreview ? 'bloqueado' : 'nenhum novo',
+                        icon: Bell,
+                        color: '#F59E0B',
+                    },
                 ]
               : [
                     { label: 'Eventos', value: '24', trend: '+18% este mes', icon: CalendarDays, color: '#22D3EE' },
@@ -1280,10 +1720,10 @@ function Overview({ role, notify }: { role: UserRole; notify: (message: string) 
 
             <div className="mt-5 grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
                 <Panel title={role === 'guest' ? 'Detalhes da festa' : 'Atividade recente'}>
-                    <ActivityList role={role} />
+                    <ActivityList role={role} inviteContext={inviteContext} />
                 </Panel>
                 <Panel title={role === 'guest' ? 'Proximos passos' : 'Distribuicao de RSVP'}>
-                    <DonutSummary role={role} />
+                    <DonutSummary role={role} inviteContext={inviteContext} />
                 </Panel>
             </div>
         </motion.div>
@@ -1359,19 +1799,37 @@ function EventsView({
                         <div className="mt-5 grid grid-cols-2 gap-3">
                             <MetricPill
                                 label={role === 'platform_admin' ? 'Tenant' : 'Confirmados'}
-                                value={role === 'platform_admin' ? 'Produção' : String(event.confirmed)}
+                                value={
+                                    role === 'platform_admin'
+                                        ? 'Produção'
+                                        : String(event.confirmed + countAcceptedPublicRsvps(event))
+                                }
                             />
                             <MetricPill label="Taxa RSVP" value={`${String(event.rsvp)}%`} />
                         </div>
-                        <ActionButton
-                            className="mt-5 w-full"
-                            onClick={() => {
-                                setEditingEvent(event);
-                                notify(`${event.title} aberto para edicao.`);
-                            }}
-                        >
-                            Gerenciar evento
-                        </ActionButton>
+                        {role === 'owner' ? <InviteLinkPanel event={event} notify={notify} className="mt-5" /> : null}
+                        {role === 'owner' ? (
+                            <ActionButton
+                                className="mt-5 w-full"
+                                onClick={() => {
+                                    setEditingEvent(event);
+                                    notify(`${event.title} aberto para edicao.`);
+                                }}
+                            >
+                                Gerenciar evento
+                            </ActionButton>
+                        ) : (
+                            <Link
+                                to={`/events/${event.slug}`}
+                                onClick={() => {
+                                    writeStoredObject('invitely.publicPreviewEvent', event);
+                                    notify(`${event.title} aberto para RSVP.`);
+                                }}
+                                className="mt-5 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#20A8E8] px-4 py-3 text-center text-sm font-bold text-white shadow-lg shadow-[#20A8E8]/20 transition hover:brightness-110"
+                            >
+                                Participar
+                            </Link>
+                        )}
                         {role === 'owner' ? (
                             <div className="mt-3 grid grid-cols-2 gap-2">
                                 <ActionButton
@@ -1402,9 +1860,10 @@ function EventsView({
                     </div>
                 </motion.article>
             ))}
-            {editingEvent ? (
+            {editingEvent && role === 'owner' ? (
                 <EventEditPanel
                     event={editingEvent}
+                    notify={notify}
                     onCancel={() => {
                         setEditingEvent(null);
                     }}
@@ -1418,18 +1877,62 @@ function EventsView({
     );
 }
 
+function InviteLinkPanel({
+    event,
+    notify,
+    className = '',
+}: {
+    event: CreatedEventSummary;
+    notify: (message: string) => void;
+    className?: string;
+}) {
+    const inviteUrl = `${window.location.origin}/events/${event.slug}`;
+
+    return (
+        <div className={`rounded-2xl border border-[#263247] bg-[#0B0F1A] p-3 ${className}`}>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#94A3B8]">Link de convite</p>
+            <p className="mt-2 truncate text-sm text-[#CBD5E1]">{inviteUrl}</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+                <Link
+                    to={`/events/${event.slug}`}
+                    onClick={() => {
+                        writeStoredObject('invitely.publicPreviewEvent', event);
+                    }}
+                    className="flex h-10 items-center justify-center rounded-xl border border-[#263247] text-sm font-bold text-white transition hover:bg-[#1A1F2E]"
+                >
+                    Abrir
+                </Link>
+                <ActionButton
+                    variant="secondary"
+                    className="h-10"
+                    onClick={() => {
+                        writeStoredObject('invitely.publicPreviewEvent', event);
+                        void navigator.clipboard.writeText(inviteUrl);
+                        notify('Link de convite copiado. Envie para seu amigo confirmar presenca.');
+                    }}
+                >
+                    Copiar link
+                </ActionButton>
+            </div>
+        </div>
+    );
+}
+
 function EventEditPanel({
     event,
+    notify,
     onCancel,
     onSave,
 }: {
     event: CreatedEventSummary;
+    notify: (message: string) => void;
     onCancel: () => void;
     onSave: (event: CreatedEventSummary) => Promise<void>;
 }) {
     const [draft, setDraft] = useState(event);
     const [error, setError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    const selectedTemplate = findTemplate(draft.templateId);
 
     return (
         <motion.aside
@@ -1467,6 +1970,7 @@ function EventEditPanel({
                 </div>
             </div>
             {error ? <p className="mt-4 text-sm text-[#FCA5A5]">{error}</p> : null}
+            <InviteLinkPanel event={draft} notify={notify} className="mt-5" />
             <div className="mt-5 grid gap-4 md:grid-cols-3">
                 <label>
                     <span className="mb-2 block text-sm text-[#CBD5E1]">Nome</span>
@@ -1503,6 +2007,59 @@ function EventEditPanel({
                         <option>Encerrado</option>
                     </select>
                 </label>
+            </div>
+            <div className="mt-5">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                        <span className="text-sm font-semibold text-[#22D3EE]">Fundo e template do convite</span>
+                        <p className="mt-1 text-sm text-[#94A3B8]">
+                            Escolha o visual que sera usado no card do evento e no convite publico.
+                        </p>
+                    </div>
+                    <StatusChip status={selectedTemplate.name} />
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    {templateOptions.map((template) => {
+                        const isSelected = selectedTemplate.id === template.id;
+
+                        return (
+                            <button
+                                key={template.id}
+                                type="button"
+                                onClick={() => {
+                                    setDraft((current) => applyTemplateToEvent(current, template));
+                                }}
+                                className={
+                                    isSelected
+                                        ? 'rounded-2xl border border-[#22D3EE] bg-[#1A1F2E] p-3 text-left shadow-lg shadow-[#22D3EE]/10'
+                                        : 'rounded-2xl border border-[#263247] bg-[#121827] p-3 text-left transition hover:border-[#22D3EE]/70'
+                                }
+                            >
+                                <div
+                                    className="relative h-28 overflow-hidden rounded-xl"
+                                    style={{ background: template.gradient }}
+                                >
+                                    <img
+                                        src={template.image}
+                                        alt=""
+                                        className="h-full w-full object-cover opacity-55 mix-blend-screen"
+                                    />
+                                    <span className="absolute left-3 top-3 rounded-full border border-white/20 bg-black/35 px-2 py-1 text-[11px] font-bold text-white">
+                                        {template.badge}
+                                    </span>
+                                </div>
+                                <p className="mt-3 text-sm font-bold">{template.name}</p>
+                                <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#94A3B8]">
+                                    {template.description}
+                                </p>
+                                <span
+                                    className="mt-3 inline-flex h-2 w-full rounded-full"
+                                    style={{ background: template.gradient }}
+                                />
+                            </button>
+                        );
+                    })}
+                </div>
             </div>
         </motion.aside>
     );
@@ -2245,7 +2802,15 @@ function TemplatesView({
     );
 }
 
-function CheckInView({ role, notify }: { role: UserRole; notify: (message: string) => void }) {
+function CheckInView({
+    role,
+    inviteContext,
+    notify,
+}: {
+    role: UserRole;
+    inviteContext: InviteContext;
+    notify: (message: string) => void;
+}) {
     return (
         <Panel title={role === 'guest' ? 'Meu QR Code' : 'Check-in por QR Code'} className="mt-6 max-w-2xl">
             <div className="grid gap-4">
@@ -2254,34 +2819,54 @@ function CheckInView({ role, notify }: { role: UserRole; notify: (message: strin
                 </div>
                 <input
                     placeholder="Cole ou leia o token do convite"
-                    defaultValue=""
+                    defaultValue={role === 'guest' ? inviteContext.event.slug : ''}
+                    disabled={role === 'guest'}
                     className="h-14 rounded-xl border border-[#263247] bg-[#0B0F1A] px-4 text-sm text-white outline-none transition focus:border-[#22D3EE]"
                 />
                 <ActionButton
+                    disabled={role === 'guest' && inviteContext.isHostPreview}
                     onClick={() => {
                         notify(role === 'guest' ? 'QR Code salvo no celular.' : 'Check-in validado com sucesso.');
                     }}
                 >
                     <QrCode className="h-4 w-4" />
-                    {role === 'guest' ? 'Salvar QR Code' : 'Validar entrada'}
+                    {role === 'guest' && inviteContext.isHostPreview
+                        ? 'QR indisponivel para anfitriao'
+                        : role === 'guest'
+                          ? 'Salvar QR Code'
+                          : 'Validar entrada'}
                 </ActionButton>
                 <div className="rounded-2xl border border-[#22C55E]/30 bg-[#22C55E]/10 p-4 text-sm text-[#BBF7D0]">
-                    QR Code pronto para validacao na portaria.
+                    {role === 'guest' && inviteContext.isHostPreview
+                        ? `Preview do convite ${inviteContext.event.title}. O anfitriao nao gera entrada para o proprio evento.`
+                        : 'QR Code pronto para validacao na portaria.'}
                 </div>
             </div>
         </Panel>
     );
 }
 
-function RsvpView({ notify }: { notify: (message: string) => void }) {
+function RsvpView({ inviteContext, notify }: { inviteContext: InviteContext; notify: (message: string) => void }) {
     return (
         <Panel title="Confirmacao de presenca" className="mt-6 max-w-2xl">
             <div className="grid gap-4">
+                <div className="rounded-2xl border border-[#263247] bg-[#0B0F1A] p-4">
+                    <p className="font-bold">{inviteContext.event.title}</p>
+                    <p className="mt-1 text-sm text-[#94A3B8]">{inviteContext.event.date}</p>
+                    <p className="mt-1 text-sm text-[#CBD5E1]">{inviteContext.event.place}</p>
+                </div>
+                {inviteContext.isHostPreview ? (
+                    <div className="rounded-2xl border border-[#F59E0B]/30 bg-[#F59E0B]/10 p-4 text-sm text-[#FDE68A]">
+                        Voce esta visualizando como anfitriao. Confirmar, negar presenca e acompanhantes ficam
+                        bloqueados para o dono do evento.
+                    </div>
+                ) : null}
                 <div className="grid gap-3 sm:grid-cols-3">
                     {['Vou sim', 'Talvez', 'Nao posso ir'].map((answer) => (
                         <ActionButton
                             key={answer}
                             variant={answer === 'Vou sim' ? 'primary' : 'secondary'}
+                            disabled={inviteContext.isHostPreview}
                             onClick={() => {
                                 notify(`RSVP atualizado: ${answer}.`);
                             }}
@@ -2291,11 +2876,481 @@ function RsvpView({ notify }: { notify: (message: string) => void }) {
                     ))}
                 </div>
                 <input
-                    defaultValue="Vou com mais 2 pessoas"
+                    defaultValue={inviteContext.isHostPreview ? 'Bloqueado para anfitriao' : ''}
+                    placeholder="Acompanhantes"
+                    disabled={inviteContext.isHostPreview}
                     className="h-12 rounded-xl border border-[#263247] bg-[#0B0F1A] px-4 text-sm text-white outline-none transition focus:border-[#22D3EE]"
                 />
             </div>
         </Panel>
+    );
+}
+
+function SettingsView({
+    user,
+    token,
+    notify,
+    onSessionUserChange,
+}: {
+    user: AuthUser;
+    token: string;
+    notify: (message: string) => void;
+    onSessionUserChange: (user: AuthUser) => void;
+}) {
+    const storageKey = userSettingsKey(user.id);
+    const initialPayload: UserSettingsPayload = {
+        name: user.name,
+        email: user.email,
+        settings: normalizeAccountSettings(user.settings),
+        notification_preferences: normalizeNotificationPreferences(user.notification_preferences),
+        privacy_preferences: normalizePrivacyPreferences(user.privacy_preferences),
+    };
+    const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'privacy'>('profile');
+    const [draft, setDraft] = useState<UserSettingsPayload>(() => readStoredObject(storageKey, initialPayload));
+    const [error, setError] = useState<string | null>(null);
+    const [savedAt, setSavedAt] = useState<string | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
+
+    const isLocalSession = token.startsWith('demo-') || token.startsWith('super-user-token-');
+
+    async function saveSettings(): Promise<void> {
+        setError(null);
+
+        if (!draft.name.trim()) {
+            setError('Informe seu nome.');
+
+            return;
+        }
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.email.trim())) {
+            setError('Informe um e-mail valido.');
+
+            return;
+        }
+
+        setIsSaving(true);
+
+        try {
+            let updatedUser: AuthUser = {
+                ...user,
+                name: draft.name.trim(),
+                email: draft.email.trim(),
+                settings: draft.settings,
+                notification_preferences: draft.notification_preferences,
+                privacy_preferences: draft.privacy_preferences,
+            };
+
+            if (!isLocalSession) {
+                const response = await fetch(apiV1Url('/admin/me'), {
+                    method: 'PATCH',
+                    headers: authHeaders(token),
+                    body: JSON.stringify(updatedUser),
+                });
+
+                if (!response.ok) {
+                    throw await responseError(response, 'Nao foi possivel salvar as configuracoes.');
+                }
+
+                const payload = (await response.json()) as { data?: { user?: AuthUser } };
+                updatedUser = payload.data?.user ?? updatedUser;
+            }
+
+            writeStoredObject(storageKey, {
+                name: updatedUser.name,
+                email: updatedUser.email,
+                settings: normalizeAccountSettings(updatedUser.settings),
+                notification_preferences: normalizeNotificationPreferences(updatedUser.notification_preferences),
+                privacy_preferences: normalizePrivacyPreferences(updatedUser.privacy_preferences),
+            });
+            onSessionUserChange(updatedUser);
+            setSavedAt(new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(new Date()));
+            notify('Configuracoes salvas com sucesso.');
+        } catch (saveError) {
+            setError(getErrorMessage(saveError, 'Nao foi possivel salvar as configuracoes.'));
+        } finally {
+            setIsSaving(false);
+        }
+    }
+
+    return (
+        <section className="mt-6 grid gap-6 xl:grid-cols-[220px_minmax(0,1fr)]">
+            <aside className="rounded-3xl border border-[#263247] bg-[#121827] p-4 shadow-xl">
+                <p className="px-2 text-xs font-bold uppercase tracking-[0.16em] text-[#94A3B8]">Configuracoes</p>
+                <div className="mt-4 grid gap-2">
+                    <SettingsTabButton
+                        active={activeTab === 'profile'}
+                        icon={UsersRound}
+                        label="Perfil"
+                        onClick={() => {
+                            setActiveTab('profile');
+                        }}
+                    />
+                    <SettingsTabButton
+                        active={activeTab === 'notifications'}
+                        icon={Bell}
+                        label="Notificacoes"
+                        onClick={() => {
+                            setActiveTab('notifications');
+                        }}
+                    />
+                    <SettingsTabButton
+                        active={activeTab === 'privacy'}
+                        icon={ShieldCheck}
+                        label="Privacidade"
+                        onClick={() => {
+                            setActiveTab('privacy');
+                        }}
+                    />
+                </div>
+            </aside>
+
+            <Panel title="Ajustes da conta" className="mt-0">
+                <div className="mb-5 flex flex-col gap-3 border-b border-[#263247] pb-5 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <p className="text-sm text-[#94A3B8]">
+                            Preferencias persistidas para sua conta e usadas em comunicacoes do evento.
+                        </p>
+                        {savedAt ? <p className="mt-1 text-xs text-[#86EFAC]">Ultimo salvamento: {savedAt}</p> : null}
+                    </div>
+                    <ActionButton onClick={() => void saveSettings()} disabled={isSaving}>
+                        {isSaving ? 'Salvando...' : 'Salvar ajustes'}
+                    </ActionButton>
+                </div>
+
+                {error ? (
+                    <p className="mb-4 rounded-xl border border-[#EF4444]/30 bg-[#EF4444]/10 p-3 text-sm text-[#FCA5A5]">
+                        {error}
+                    </p>
+                ) : null}
+                {isLocalSession ? (
+                    <p className="mb-4 rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/10 p-3 text-sm text-[#FDE68A]">
+                        Sessao local de demonstracao: os ajustes serao salvos neste navegador.
+                    </p>
+                ) : null}
+
+                {activeTab === 'profile' ? (
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <SettingsField label="Nome publico">
+                            <input
+                                value={draft.name}
+                                onChange={(event) => {
+                                    setDraft((current) => ({ ...current, name: event.target.value }));
+                                }}
+                                className="field-control"
+                            />
+                        </SettingsField>
+                        <SettingsField label="E-mail da conta">
+                            <input
+                                type="email"
+                                value={draft.email}
+                                onChange={(event) => {
+                                    setDraft((current) => ({ ...current, email: event.target.value }));
+                                }}
+                                className="field-control"
+                            />
+                        </SettingsField>
+                        <SettingsField label="Organizacao">
+                            <input
+                                value={draft.settings.organization}
+                                onChange={(event) => {
+                                    setDraft((current) => ({
+                                        ...current,
+                                        settings: { ...current.settings, organization: event.target.value },
+                                    }));
+                                }}
+                                className="field-control"
+                            />
+                        </SettingsField>
+                        <SettingsField label="Fuso horario">
+                            <select
+                                value={draft.settings.timezone}
+                                onChange={(event) => {
+                                    setDraft((current) => ({
+                                        ...current,
+                                        settings: { ...current.settings, timezone: event.target.value },
+                                    }));
+                                }}
+                                className="field-control"
+                            >
+                                <option value="America/Sao_Paulo">America/Sao_Paulo</option>
+                                <option value="America/New_York">America/New_York</option>
+                                <option value="Europe/London">Europe/London</option>
+                            </select>
+                        </SettingsField>
+                        <SettingsField label="Idioma">
+                            <select
+                                value={draft.settings.language}
+                                onChange={(event) => {
+                                    setDraft((current) => ({
+                                        ...current,
+                                        settings: {
+                                            ...current.settings,
+                                            language: event.target.value as AccountSettings['language'],
+                                        },
+                                    }));
+                                }}
+                                className="field-control"
+                            >
+                                <option value="pt-BR">Portugues do Brasil</option>
+                                <option value="en-US">English</option>
+                                <option value="es">Espanol</option>
+                            </select>
+                        </SettingsField>
+                    </div>
+                ) : null}
+
+                {activeTab === 'notifications' ? (
+                    <div className="grid gap-4">
+                        <ToggleRow
+                            label="RSVP por e-mail"
+                            description="Receber aviso quando convidados confirmarem ou recusarem."
+                            checked={draft.notification_preferences.emailRsvp}
+                            onChange={(value) => {
+                                setDraft((current) => ({
+                                    ...current,
+                                    notification_preferences: { ...current.notification_preferences, emailRsvp: value },
+                                }));
+                            }}
+                        />
+                        <ToggleRow
+                            label="Lembretes operacionais"
+                            description="Receber alertas antes do evento e de tarefas pendentes."
+                            checked={draft.notification_preferences.emailReminders}
+                            onChange={(value) => {
+                                setDraft((current) => ({
+                                    ...current,
+                                    notification_preferences: {
+                                        ...current.notification_preferences,
+                                        emailReminders: value,
+                                    },
+                                }));
+                            }}
+                        />
+                        <ToggleRow
+                            label="Resumo semanal"
+                            description="Receber um digest com convidados, presentes e orcamento."
+                            checked={draft.notification_preferences.weeklySummary}
+                            onChange={(value) => {
+                                setDraft((current) => ({
+                                    ...current,
+                                    notification_preferences: {
+                                        ...current.notification_preferences,
+                                        weeklySummary: value,
+                                    },
+                                }));
+                            }}
+                        />
+                        <ToggleRow
+                            label="Novidades do produto"
+                            description="Receber comunicados de funcionalidades e melhorias."
+                            checked={draft.notification_preferences.marketing}
+                            onChange={(value) => {
+                                setDraft((current) => ({
+                                    ...current,
+                                    notification_preferences: { ...current.notification_preferences, marketing: value },
+                                }));
+                            }}
+                        />
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <SettingsField label="Silenciar a partir de">
+                                <input
+                                    type="time"
+                                    value={draft.notification_preferences.quietHoursStart}
+                                    onChange={(event) => {
+                                        setDraft((current) => ({
+                                            ...current,
+                                            notification_preferences: {
+                                                ...current.notification_preferences,
+                                                quietHoursStart: event.target.value,
+                                            },
+                                        }));
+                                    }}
+                                    className="field-control"
+                                />
+                            </SettingsField>
+                            <SettingsField label="Retomar notificacoes em">
+                                <input
+                                    type="time"
+                                    value={draft.notification_preferences.quietHoursEnd}
+                                    onChange={(event) => {
+                                        setDraft((current) => ({
+                                            ...current,
+                                            notification_preferences: {
+                                                ...current.notification_preferences,
+                                                quietHoursEnd: event.target.value,
+                                            },
+                                        }));
+                                    }}
+                                    className="field-control"
+                                />
+                            </SettingsField>
+                        </div>
+                    </div>
+                ) : null}
+
+                {activeTab === 'privacy' ? (
+                    <div className="grid gap-4">
+                        <SettingsField label="Visibilidade do perfil">
+                            <select
+                                value={draft.privacy_preferences.profileVisibility}
+                                onChange={(event) => {
+                                    setDraft((current) => ({
+                                        ...current,
+                                        privacy_preferences: {
+                                            ...current.privacy_preferences,
+                                            profileVisibility: event.target
+                                                .value as PrivacyPreferences['profileVisibility'],
+                                        },
+                                    }));
+                                }}
+                                className="field-control"
+                            >
+                                <option value="team">Equipe do evento</option>
+                                <option value="private">Privado</option>
+                            </select>
+                        </SettingsField>
+                        <ToggleRow
+                            label="Exibir e-mail para convidados"
+                            description="Permitir que convidados vejam o e-mail de contato do organizador."
+                            checked={draft.privacy_preferences.showEmailToGuests}
+                            onChange={(value) => {
+                                setDraft((current) => ({
+                                    ...current,
+                                    privacy_preferences: {
+                                        ...current.privacy_preferences,
+                                        showEmailToGuests: value,
+                                    },
+                                }));
+                            }}
+                        />
+                        <ToggleRow
+                            label="Permitir mensagens dos convidados"
+                            description="Habilitar recados vindos do convite publico."
+                            checked={draft.privacy_preferences.allowGuestMessages}
+                            onChange={(value) => {
+                                setDraft((current) => ({
+                                    ...current,
+                                    privacy_preferences: {
+                                        ...current.privacy_preferences,
+                                        allowGuestMessages: value,
+                                    },
+                                }));
+                            }}
+                        />
+                        <ToggleRow
+                            label="Analytics de produto"
+                            description="Permitir metricas agregadas para melhorar estabilidade e experiencia."
+                            checked={draft.privacy_preferences.analyticsConsent}
+                            onChange={(value) => {
+                                setDraft((current) => ({
+                                    ...current,
+                                    privacy_preferences: {
+                                        ...current.privacy_preferences,
+                                        analyticsConsent: value,
+                                    },
+                                }));
+                            }}
+                        />
+                        <SettingsField label="Retencao de dados operacionais">
+                            <select
+                                value={draft.privacy_preferences.dataRetention}
+                                onChange={(event) => {
+                                    setDraft((current) => ({
+                                        ...current,
+                                        privacy_preferences: {
+                                            ...current.privacy_preferences,
+                                            dataRetention: event.target.value as PrivacyPreferences['dataRetention'],
+                                        },
+                                    }));
+                                }}
+                                className="field-control"
+                            >
+                                <option value="12_months">12 meses</option>
+                                <option value="24_months">24 meses</option>
+                                <option value="indefinite">Manter ate remocao manual</option>
+                            </select>
+                        </SettingsField>
+                    </div>
+                ) : null}
+            </Panel>
+        </section>
+    );
+}
+
+function SettingsTabButton({
+    active,
+    icon: Icon,
+    label,
+    onClick,
+}: {
+    active: boolean;
+    icon: LucideIcon;
+    label: string;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className={
+                active
+                    ? 'flex h-11 items-center gap-3 rounded-xl bg-[#31275F] px-3 text-sm font-bold text-white'
+                    : 'flex h-11 items-center gap-3 rounded-xl px-3 text-sm font-semibold text-[#CBD5E1] transition hover:bg-[#1A1F2E] hover:text-white'
+            }
+        >
+            <Icon className="h-4 w-4" />
+            {label}
+        </button>
+    );
+}
+
+function SettingsField({ label, children }: { label: string; children: ReactNode }) {
+    return (
+        <label className="block">
+            <span className="mb-2 block text-sm text-[#CBD5E1]">{label}</span>
+            {children}
+        </label>
+    );
+}
+
+function ToggleRow({
+    label,
+    description,
+    checked,
+    onChange,
+}: {
+    label: string;
+    description: string;
+    checked: boolean;
+    onChange: (checked: boolean) => void;
+}) {
+    return (
+        <div className="flex flex-col gap-3 rounded-2xl border border-[#263247] bg-[#0B0F1A] p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <p className="font-bold">{label}</p>
+                <p className="mt-1 text-sm leading-6 text-[#94A3B8]">{description}</p>
+            </div>
+            <button
+                type="button"
+                aria-pressed={checked}
+                onClick={() => {
+                    onChange(!checked);
+                }}
+                className={
+                    checked
+                        ? 'relative h-8 w-14 rounded-full bg-[#22D3EE] transition'
+                        : 'relative h-8 w-14 rounded-full bg-[#263247] transition'
+                }
+            >
+                <span
+                    className={
+                        checked
+                            ? 'absolute right-1 top-1 h-6 w-6 rounded-full bg-white transition'
+                            : 'absolute left-1 top-1 h-6 w-6 rounded-full bg-white transition'
+                    }
+                />
+            </button>
+        </div>
     );
 }
 
@@ -2365,12 +3420,19 @@ function DataPanel({ title, headers, rows }: { title: string; headers: string[];
     );
 }
 
-function ActivityList({ role }: { role: UserRole }) {
+function ActivityList({ role, inviteContext }: { role: UserRole; inviteContext: InviteContext }) {
     const items =
         role === 'platform_admin'
             ? ['Tenant Aurora Studio atualizou plano', 'Fila de e-mail estabilizada', 'Novo chamado atribuido']
             : role === 'guest'
-              ? ['Evento confirmado para 23 jul 2026', 'Dress code: smart casual', 'Endereco salvo: Atelier Vista']
+              ? [
+                    `${inviteContext.event.title} - ${inviteContext.event.status}`,
+                    `Data do convite: ${inviteContext.event.date}`,
+                    `Endereco salvo: ${inviteContext.event.place}`,
+                    inviteContext.isHostPreview
+                        ? 'Voce e o anfitriao: RSVP, acompanhantes e recados ficam bloqueados.'
+                        : 'Convite pronto para resposta do convidado.',
+                ]
               : ['Joao Silva confirmou presenca', 'Maria Oliveira fez check-in', 'Lucas Pereira recusou presenca'];
 
     return (
@@ -2388,13 +3450,13 @@ function ActivityList({ role }: { role: UserRole }) {
     );
 }
 
-function DonutSummary({ role }: { role: UserRole }) {
+function DonutSummary({ role, inviteContext }: { role: UserRole; inviteContext: InviteContext }) {
     const labels =
         role === 'guest'
             ? [
-                  ['Confirmado', 'Sim', '#22D3EE'],
-                  ['Acompanhantes', '2', '#8B5CF6'],
-                  ['Entrada', 'QR liberado', '#22C55E'],
+                  ['Evento', inviteContext.event.title, '#22D3EE'],
+                  ['RSVP', inviteContext.isHostPreview ? 'Bloqueado para anfitriao' : 'Pendente', '#8B5CF6'],
+                  ['Entrada', inviteContext.isHostPreview ? 'Preview do convite' : 'Apos confirmar', '#22C55E'],
               ]
             : [
                   ['Confirmados', '76% (918)', '#22D3EE'],
@@ -2407,7 +3469,9 @@ function DonutSummary({ role }: { role: UserRole }) {
             <div className="mx-auto h-40 w-40 rounded-full bg-[conic-gradient(#22D3EE_0_76%,#8B5CF6_76%_94%,#EF4444_94%_100%)] p-8">
                 <div className="flex h-full w-full items-center justify-center rounded-full bg-[#121827] text-center">
                     <div>
-                        <p className="text-2xl font-extrabold">{role === 'guest' ? 'OK' : '76%'}</p>
+                        <p className="text-2xl font-extrabold">
+                            {role === 'guest' ? (inviteContext.isHostPreview ? 'Host' : 'Convite') : '76%'}
+                        </p>
                         <p className="text-xs text-[#94A3B8]">{role === 'guest' ? 'Convite' : 'RSVP'}</p>
                     </div>
                 </div>

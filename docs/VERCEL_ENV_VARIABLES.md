@@ -249,7 +249,7 @@ Você deve usar:
 
 ```
 ✅ https://seu-site.vercel.app/login
-❌ http://localhost:5173/login (isso é local)
+❌ http://localhost:5174/login (isso é local)
 ❌ https://seu-site.com/login (se usar domínio custom)
 ```
 

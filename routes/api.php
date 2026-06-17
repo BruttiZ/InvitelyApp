@@ -38,6 +38,7 @@ Route::prefix('v1')->middleware(['throttle:api', 'tenant.optional'])->group(func
 
     Route::middleware(['auth:sanctum'])->prefix('admin')->group(function (): void {
         Route::get('/me', [AuthController::class, 'me']);
+        Route::patch('/me', [AuthController::class, 'updateMe']);
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::apiResource('events', AdminEventController::class);
         Route::get('events/{event}/analytics', AdminAnalyticsController::class);

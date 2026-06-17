@@ -12,6 +12,7 @@ export type CreatedEventSummary = {
     slug: string;
     title: string;
     description?: string;
+    templateId?: string;
     date: string;
     startsAt?: string;
     endsAt?: string;

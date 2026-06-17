@@ -14,10 +14,10 @@ O projeto usa Laravel, React, TypeScript, PostgreSQL, Redis, TailwindCSS, Framer
 
 Depois de subir o Docker, abra:
 
-- Landing page: `http://localhost:8080`
-- Convite de exemplo: `http://localhost:8080/events/invitely-launch-night`
-- Login / cadastro: `http://localhost:8080/login`
-- Dashboard interativo: `http://localhost:8080/admin`
+- Landing page: `http://localhost:8082`
+- Convite de exemplo: `http://localhost:8082/events/invitely-launch-night`
+- Login / cadastro: `http://localhost:8082/login`
+- Dashboard interativo: `http://localhost:8082/admin`
 
 ## Identidade visual
 
@@ -120,8 +120,8 @@ O frontend é organizado por features:
 
 ## Fluxo de portfólio
 
-1. Abra `http://localhost:8080`.
-2. Clique em `Começar agora` ou acesse `http://localhost:8080/login`.
+1. Abra `http://localhost:8082`.
+2. Clique em `Começar agora` ou acesse `http://localhost:8082/login`.
 3. Crie uma conta com e-mail, senha e perfil inicial.
 4. Faça login com as credenciais cadastradas.
 5. Explore o dashboard, os cards, o check-in e o convite público.
