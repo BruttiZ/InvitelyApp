@@ -25,7 +25,7 @@ import type { LucideIcon } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { ReactNode } from 'react';
 import { SyntheticEvent, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { getStoredSession } from '../../auth/session';
 import { apiUrl } from '../../../lib/api';
 import { PublicEvent } from './types';
@@ -43,12 +43,54 @@ type RsvpFormState = {
     message: string;
 };
 
+type InviteDetails = {
+    invite_token: string;
+    guest_id: string;
+    guest_name: string;
+    guest_email: string | null;
+    guest_status: string;
+    max_companions: number;
+    party_size: number;
+    event_id: string;
+    event_name: string;
+    event_slug: string;
+    event_date?: string | null;
+    event_status: string;
+};
+
+type StoredEventSummary = {
+    id: string;
+    slug: string;
+    title: string;
+    description?: string;
+    date: string;
+    startsAt?: string;
+    endsAt?: string;
+    place: string;
+    status: string;
+    confirmed: number;
+    rsvp: number;
+    image: string;
+};
+
+type StoredPublicRsvp = {
+    eventId: string;
+    eventSlug: string;
+    name: string;
+    email: string;
+    status: RsvpStatus;
+    companions: number;
+    message: string;
+    respondedAt: string;
+};
+
 const fallbackHeroImage =
     'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=1800&q=85';
 const fallbackMetrics = { accepted: 42, declined: 3, invited: 120 };
 
 const demoEvent: PublicEvent = {
     id: 'demo',
+    source: 'demo',
     name: 'Invitely Launch Night',
     slug: 'invitely-launch-night',
     status: 'published',
@@ -96,6 +138,140 @@ const demoEvent: PublicEvent = {
     metrics: fallbackMetrics,
 };
 
+function normalizeStoredEvent(event: StoredEventSummary): PublicEvent {
+    const startsAt = event.startsAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const localRsvps = readStoredPublicRsvps().filter(
+        (rsvp) => rsvp.eventId === event.id || rsvp.eventSlug === event.slug,
+    );
+    const accepted = localRsvps.filter((rsvp) => rsvp.status === 'accepted').length;
+    const declined = localRsvps.filter((rsvp) => rsvp.status === 'declined').length;
+    const invited = Math.max(event.confirmed, localRsvps.length, 1);
+
+    return {
+        id: event.id,
+        source: 'go',
+        name: event.title,
+        slug: event.slug,
+        status: event.status === 'Publicado' ? 'published' : event.status,
+        starts_at: startsAt,
+        ends_at: event.endsAt ?? null,
+        timezone: 'America/Sao_Paulo',
+        venue: {
+            name: event.place,
+            address: event.place,
+            latitude: null,
+            longitude: null,
+        },
+        spotify_playlist_url: null,
+        hero: {
+            eyebrow: 'Convite digital',
+            title: event.title,
+            subtitle: event.description ?? 'Confirme sua presenca e acompanhe os detalhes do evento.',
+            image_url: event.image,
+        },
+        content: {
+            hosts: ['Organizacao'],
+            schedule: [
+                {
+                    time: new Intl.DateTimeFormat('pt-BR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                    }).format(new Date(startsAt)),
+                    title: 'Inicio do evento',
+                },
+            ],
+            dress_code: 'A definir',
+            note: 'Use seu QR Code na entrada para check-in rapido.',
+        },
+        theme: { mode: 'dark', primary: '#8B5CF6', accent: '#22D3EE' },
+        gallery: demoEvent.gallery,
+        metrics: { accepted, declined, invited },
+    };
+}
+
+function readStoredPublicRsvps(): StoredPublicRsvp[] {
+    const raw = window.localStorage.getItem('invitely.publicRsvps');
+
+    if (!raw) {
+        return [];
+    }
+
+    try {
+        const parsed = JSON.parse(raw) as StoredPublicRsvp[];
+
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function writeStoredPublicRsvp(event: PublicEvent, form: RsvpFormState, status: RsvpStatus): void {
+    const record: StoredPublicRsvp = {
+        eventId: event.id,
+        eventSlug: event.slug,
+        name: form.name.trim(),
+        email: form.email.trim().toLowerCase(),
+        status,
+        companions: form.companions,
+        message: form.message.trim(),
+        respondedAt: new Date().toISOString(),
+    };
+    const next = [
+        record,
+        ...readStoredPublicRsvps().filter(
+            (rsvp) =>
+                !(
+                    (rsvp.eventId === record.eventId || rsvp.eventSlug === record.eventSlug) &&
+                    rsvp.email.toLowerCase() === record.email
+                ),
+        ),
+    ];
+
+    window.localStorage.setItem('invitely.publicRsvps', JSON.stringify(next));
+}
+
+function readStoredEvents(): StoredEventSummary[] {
+    const sources = ['invitely.publicPreviewEvent', 'invitely.eventOverrides', 'invitely.createdEvents'];
+
+    return sources.flatMap((key) => {
+        const raw = window.localStorage.getItem(key);
+
+        if (!raw) {
+            return [];
+        }
+
+        try {
+            const parsed = JSON.parse(raw) as StoredEventSummary | StoredEventSummary[];
+
+            return Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+            return [];
+        }
+    });
+}
+
+async function fetchPublicEvent(slug: string): Promise<PublicEvent> {
+    const storedEvent = readStoredEvents().find((event) => event.slug === slug);
+
+    if (storedEvent) {
+        return normalizeStoredEvent(storedEvent);
+    }
+
+    const publicResponse = await fetch(apiUrl(`/api/v1/events/${slug}`));
+
+    if (publicResponse.ok) {
+        const payload = (await publicResponse.json()) as { data: PublicEvent };
+
+        return { ...payload.data, source: 'laravel' };
+    }
+
+    if (slug === 'invitely-launch-night') {
+        return demoEvent;
+    }
+
+    throw new Error('Convite nao encontrado. Verifique se o link do evento esta correto.');
+}
+
 function useCountdown(date: string): CountdownItem[] {
     const [now, setNow] = useState(() => Date.now());
 
@@ -122,13 +298,15 @@ function useCountdown(date: string): CountdownItem[] {
 
 export function PublicEventPage() {
     const { slug = 'invitely-launch-night' } = useParams();
+    const [searchParams] = useSearchParams();
+    const inviteToken = searchParams.get('invite') ?? searchParams.get('token') ?? '';
     const session = getStoredSession();
     const [notice, setNotice] = useState('Informe seu e-mail para receber um codigo de verificacao.');
     const [responseStatus, setResponseStatus] = useState<RsvpStatus | null>(null);
     const [rsvpStep, setRsvpStep] = useState<RsvpStep>('details');
     const [desiredStatus, setDesiredStatus] = useState<RsvpStatus>('accepted');
     const [form, setForm] = useState<RsvpFormState>({
-        invite_token: 'demo-invite-token',
+        invite_token: inviteToken,
         name: '',
         email: '',
         code: '',
@@ -136,22 +314,47 @@ export function PublicEventPage() {
         message: '',
     });
 
-    const eventQuery = useQuery({
-        queryKey: ['public-event', slug],
+    const inviteQuery = useQuery({
+        queryKey: ['public-invite', inviteToken],
+        enabled: inviteToken.trim() !== '',
+        retry: false,
         queryFn: async () => {
-            const response = await fetch(apiUrl(`/api/v1/events/${slug}`));
+            const response = await fetch(apiUrl(`/api/v1/invites/${inviteToken}`));
 
             if (!response.ok) {
-                return demoEvent;
+                const payload = (await response.json().catch(() => null)) as {
+                    error?: string;
+                    message?: string;
+                } | null;
+                throw new Error(payload?.error ?? payload?.message ?? 'Convite recebido nao encontrado.');
             }
 
-            const payload = (await response.json()) as { data: PublicEvent };
+            return (await response.json()) as InviteDetails;
+        },
+    });
 
-            return payload.data;
+    const eventQuery = useQuery({
+        queryKey: ['public-event', inviteQuery.data?.event_slug ?? slug],
+        retry: false,
+        queryFn: async () => {
+            return fetchPublicEvent(inviteQuery.data?.event_slug ?? slug);
         },
     });
 
     const event = eventQuery.data ?? demoEvent;
+    const maxCompanions = inviteQuery.data?.max_companions ?? 5;
+    const rsvpForm: RsvpFormState = inviteQuery.data
+        ? {
+              ...form,
+              invite_token: inviteQuery.data.invite_token,
+              name: inviteQuery.data.guest_name,
+              email: inviteQuery.data.guest_email ?? '',
+              companions: Math.min(form.companions, inviteQuery.data.max_companions),
+          }
+        : form;
+    const currentNotice = inviteQuery.data
+        ? `Convite de ${inviteQuery.data.guest_name} carregado para ${inviteQuery.data.event_name}.`
+        : notice;
     const countdown = useCountdown(event.starts_at);
     const heroImage = event.hero.image_url ?? fallbackHeroImage;
     const accepted = event.metrics?.accepted ?? fallbackMetrics.accepted;
@@ -180,7 +383,7 @@ export function PublicEventPage() {
                 headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
                 body: JSON.stringify({
                     event_id: event.id,
-                    email: form.email,
+                    email: rsvpForm.email,
                 }),
             });
 
@@ -193,6 +396,68 @@ export function PublicEventPage() {
         },
         onSuccess: (payload) => {
             setRsvpStep('code');
+            setNotice(payload.message);
+        },
+    });
+
+    const directRsvp = useMutation({
+        mutationFn: async (status: RsvpStatus) => {
+            if (event.id === 'demo') {
+                await new Promise((resolve) => window.setTimeout(resolve, 500));
+                writeStoredPublicRsvp(event, rsvpForm, status);
+
+                return {
+                    message: status === 'accepted' ? 'Presenca confirmada!' : 'Voce recusou o convite.',
+                };
+            }
+
+            const body = {
+                event_id: event.id,
+                event_slug: event.slug,
+                invite_token: rsvpForm.invite_token,
+                status,
+                companions: rsvpForm.companions,
+                message: rsvpForm.message,
+                name: rsvpForm.name,
+                email: rsvpForm.email,
+            };
+            const localResponse = await fetch(apiUrl(`/api/v1/events/${event.slug}/rsvp`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify(body),
+            });
+
+            if (localResponse.ok) {
+                return (await localResponse.json()) as { message: string };
+            }
+
+            if (event.source === 'go') {
+                const goResponse = await fetch(apiUrl('/api/v1/go/rsvp'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                    body: JSON.stringify(body),
+                });
+
+                if (goResponse.ok) {
+                    return (await goResponse.json()) as { message: string };
+                }
+
+                writeStoredPublicRsvp(event, rsvpForm, status);
+
+                return {
+                    message:
+                        status === 'accepted'
+                            ? 'Presenca confirmada! O organizador ja pode ver seu e-mail no painel.'
+                            : 'Resposta registrada. O organizador ja pode ver sua recusa no painel.',
+                };
+            }
+
+            const payload = (await localResponse.json().catch(() => null)) as { message?: string } | null;
+            throw new Error(payload?.message ?? 'Nao foi possivel registrar sua resposta agora.');
+        },
+        onSuccess: (payload, status) => {
+            setResponseStatus(status);
+            setRsvpStep('done');
             setNotice(payload.message);
         },
     });
@@ -212,12 +477,13 @@ export function PublicEventPage() {
                 headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
                 body: JSON.stringify({
                     event_id: event.id,
-                    email: form.email,
-                    code: form.code,
+                    email: rsvpForm.email,
+                    code: rsvpForm.code,
                     status,
-                    name: form.name,
-                    companions: form.companions,
-                    message: form.message,
+                    name: rsvpForm.name,
+                    companions: rsvpForm.companions,
+                    message: rsvpForm.message,
+                    invite_token: rsvpForm.invite_token || undefined,
                 }),
             });
 
@@ -235,10 +501,10 @@ export function PublicEventPage() {
         },
     });
 
-    const isFormReady = form.name.trim().length > 2 && form.email.includes('@');
-    const isCodeReady = /^\d{6}$/.test(form.code);
-    const isBusy = requestCode.isPending || verifyCode.isPending;
-    const errorMessage = requestCode.error?.message ?? verifyCode.error?.message;
+    const isFormReady = rsvpForm.name.trim().length > 2 && rsvpForm.email.includes('@');
+    const isCodeReady = /^\d{6}$/.test(rsvpForm.code);
+    const isBusy = requestCode.isPending || verifyCode.isPending || directRsvp.isPending;
+    const errorMessage = requestCode.error?.message ?? verifyCode.error?.message ?? directRsvp.error?.message;
 
     function submit(eventSubmit: SyntheticEvent<HTMLFormElement>) {
         eventSubmit.preventDefault();
@@ -250,7 +516,7 @@ export function PublicEventPage() {
         }
 
         if (rsvpStep === 'details') {
-            requestCode.mutate();
+            directRsvp.mutate(desiredStatus);
 
             return;
         }
@@ -267,7 +533,7 @@ export function PublicEventPage() {
     function updateCompanions(direction: 1 | -1) {
         setForm((current) => ({
             ...current,
-            companions: Math.max(0, current.companions + direction),
+            companions: Math.min(maxCompanions, Math.max(0, current.companions + direction)),
         }));
     }
 
@@ -281,6 +547,26 @@ export function PublicEventPage() {
 
         void navigator.clipboard.writeText(window.location.href);
         setNotice('Link do convite copiado para a area de transferencia.');
+    }
+
+    if (eventQuery.isError) {
+        return (
+            <main className="grid min-h-screen place-items-center bg-[#060B1A] px-4 text-white">
+                <Panel title="Convite indisponivel">
+                    <p className="text-sm leading-6 text-[#CBD5E1]">
+                        {eventQuery.error instanceof Error
+                            ? eventQuery.error.message
+                            : 'Nao foi possivel carregar este convite.'}
+                    </p>
+                    <Link
+                        to="/"
+                        className="mt-5 inline-flex h-11 items-center rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#0EA5E9] px-4 text-sm font-bold"
+                    >
+                        Voltar ao inicio
+                    </Link>
+                </Panel>
+            </main>
+        );
     }
 
     return (
@@ -398,8 +684,8 @@ export function PublicEventPage() {
                     </motion.div>
 
                     <RsvpCard
-                        form={form}
-                        notice={notice}
+                        form={rsvpForm}
+                        notice={currentNotice}
                         step={rsvpStep}
                         desiredStatus={desiredStatus}
                         isFormReady={isFormReady}
@@ -407,7 +693,10 @@ export function PublicEventPage() {
                         isPending={isBusy}
                         errorMessage={errorMessage}
                         responseStatus={responseStatus}
-                        inviteToken={form.invite_token}
+                        inviteToken={rsvpForm.invite_token}
+                        hasInviteToken={inviteToken.trim() !== ''}
+                        maxCompanions={maxCompanions}
+                        inviteError={inviteQuery.error?.message}
                         setDesiredStatus={setDesiredStatus}
                         setForm={setForm}
                         submit={submit}
@@ -455,7 +744,10 @@ export function PublicEventPage() {
                 <Panel title="Check-in QR">
                     <div className="flex items-center gap-5">
                         <div className="rounded-2xl bg-white p-3">
-                            <QRCodeSVG value={`${window.location.origin}/check-in/${form.invite_token}`} size={104} />
+                            <QRCodeSVG
+                                value={`${window.location.origin}/check-in/${rsvpForm.invite_token}`}
+                                size={104}
+                            />
                         </div>
                         <p className="text-sm leading-6 text-[#94A3B8]">
                             Token seguro para validacao rapida na entrada do evento.
@@ -563,6 +855,9 @@ function RsvpCard({
     errorMessage,
     responseStatus,
     inviteToken,
+    hasInviteToken,
+    maxCompanions,
+    inviteError,
     setDesiredStatus,
     setForm,
     submit,
@@ -579,6 +874,9 @@ function RsvpCard({
     errorMessage?: string;
     responseStatus: RsvpStatus | null;
     inviteToken: string;
+    hasInviteToken: boolean;
+    maxCompanions: number;
+    inviteError?: string;
     setDesiredStatus: (status: RsvpStatus) => void;
     setForm: (form: RsvpFormState) => void;
     submit: (eventSubmit: SyntheticEvent<HTMLFormElement>) => void;
@@ -586,7 +884,15 @@ function RsvpCard({
     updateCompanions: (direction: 1 | -1) => void;
 }) {
     const submitLabel =
-        step === 'details' ? 'Receber codigo' : desiredStatus === 'accepted' ? 'Confirmar presenca' : 'Recusar convite';
+        step === 'details' && hasInviteToken
+            ? desiredStatus === 'accepted'
+                ? 'Confirmar presenca'
+                : 'Recusar convite'
+            : step === 'details'
+              ? 'Receber codigo'
+              : desiredStatus === 'accepted'
+                ? 'Confirmar presenca'
+                : 'Recusar convite';
 
     return (
         <motion.form
@@ -609,6 +915,16 @@ function RsvpCard({
                     <QRCodeSVG value={`${window.location.origin}/check-in/${inviteToken}`} size={62} />
                 </div>
             </div>
+            {hasInviteToken ? (
+                <div className="mb-5 rounded-xl border border-[#22D3EE]/35 bg-[#0EA5E9]/10 px-3 py-2 text-sm text-[#BAE6FD]">
+                    Convite pessoal carregado. Nome e e-mail ficam vinculados ao convite recebido.
+                </div>
+            ) : null}
+            {inviteError ? (
+                <div className="mb-5 rounded-xl border border-[#F59E0B]/35 bg-[#F59E0B]/10 px-3 py-2 text-sm text-[#FDE68A]">
+                    {inviteError}
+                </div>
+            ) : null}
 
             <div className="mb-5 grid grid-cols-3 gap-2">
                 <StepPill active icon={UsersRound} label="Dados" />
@@ -650,7 +966,7 @@ function RsvpCard({
                     icon={UsersRound}
                     label="Nome completo"
                     value={form.name}
-                    disabled={step !== 'details'}
+                    disabled={step !== 'details' || hasInviteToken}
                     onChange={(value) => {
                         setForm({ ...form, name: value });
                     }}
@@ -660,7 +976,7 @@ function RsvpCard({
                     label="E-mail"
                     type="email"
                     value={form.email}
-                    disabled={step !== 'details'}
+                    disabled={step !== 'details' || hasInviteToken}
                     onChange={(value) => {
                         setForm({ ...form, email: value });
                     }}
@@ -678,7 +994,9 @@ function RsvpCard({
                     />
                 ) : null}
                 <div>
-                    <label className="mb-2 block text-xs font-semibold text-[#CBD5E1]">Acompanhantes</label>
+                    <label className="mb-2 block text-xs font-semibold text-[#CBD5E1]">
+                        Acompanhantes <span className="text-[#64748B]">max. {maxCompanions}</span>
+                    </label>
                     <div className="grid grid-cols-[52px_1fr_52px] overflow-hidden rounded-xl border border-[#263247] bg-[#060B1A]">
                         <motion.button
                             whileTap={{ scale: 0.94 }}

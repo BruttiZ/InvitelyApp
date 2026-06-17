@@ -13,5 +13,7 @@ final readonly class RsvpData
         public int $companions,
         public ?string $message,
         public ?array $answers = null,
+        public ?string $name = null,
+        public ?string $email = null,
     ) {}
 }

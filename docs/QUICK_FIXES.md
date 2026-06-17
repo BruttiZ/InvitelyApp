@@ -95,7 +95,7 @@ $guest = Guest::create([
 
 ### Testar Rate Limit Fix
 
-1. Abra `http://localhost:5173/login`
+1. Abra `http://localhost:5174/login`
 2. Clique "Cadastro"
 3. Preencha com um novo email
 4. Clique "Cadastrar"
@@ -105,7 +105,7 @@ $guest = Guest::create([
 ### Testar Fluxo de Convites
 
 1. Backend: Criar um guest com `invite_token = 'test123'`
-2. Abra: `http://localhost:5173/invite?token=test123`
+2. Abra: `http://localhost:5174/invite?token=test123`
 3. Deve mostrar nome/email/evento do convite
 4. Clique "Aceitar convite"
 5. Deve redirecionar para `/auth` com email pré-preenchido
@@ -142,7 +142,7 @@ $guest = Guest::create([
 
 ### Link de convite está quebrado?
 
-- Verificar formato: `http://localhost:5173/invite?token=SEU_TOKEN_AQUI`
+- Verificar formato: `http://localhost:5174/invite?token=SEU_TOKEN_AQUI`
 - Verificar se rota `/invite` existe no `app.tsx`
 
 ---

@@ -5,7 +5,7 @@
 Altere a porta no `.env`:
 
 ```env
-APP_PORT=8081
+APP_PORT=8082
 POSTGRES_PORT=5433
 ```
 
@@ -65,7 +65,7 @@ No Supabase, abra `Authentication > URL Configuration` e configure:
 Exemplos locais:
 
 ```text
-http://localhost:8080/**
+http://localhost:8082/**
 http://localhost:4173/**
 ```
 

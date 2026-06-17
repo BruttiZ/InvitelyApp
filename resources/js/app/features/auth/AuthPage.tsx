@@ -21,7 +21,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { SyntheticEvent, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AuthSession, UserRole, roleLabel, storeSession } from '../../auth/session';
+import { AuthSession, UserRole, resolveActiveRole, roleLabel, storeSession } from '../../auth/session';
 import { apiV1Url } from '../../../lib/api';
 
 type AuthMode = 'login' | 'register';
@@ -259,8 +259,13 @@ export function AuthPage() {
             return { kind: 'authenticated', session };
         },
         onSuccess: (payload) => {
-            storeSession(payload.session);
-            void navigate(destinationFor(payload.session.user.role));
+            const activeRole = resolveActiveRole(payload.session.user.role, role);
+            const session = {
+                ...payload.session,
+                activeRole,
+            };
+            storeSession(session);
+            void navigate(destinationFor(activeRole));
         },
     });
 

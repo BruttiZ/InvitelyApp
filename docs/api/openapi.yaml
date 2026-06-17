@@ -8,7 +8,7 @@ info:
     limiting e token de convite; as rotas administrativas exigem autenticação
     via Laravel Sanctum e políticas de tenant.
 servers:
-  - url: http://localhost:8080/api/v1
+  - url: http://localhost:8082/api/v1
     description: Ambiente local Docker
 tags:
   - name: Público

@@ -4,7 +4,7 @@ O ambiente Docker foi pensado para onboarding rapido e previsivel.
 
 ## Servicos
 
-- `nginx`: expoe a aplicacao em `APP_PORT`, por padrao `8080`.
+- `nginx`: expoe a aplicacao em `APP_PORT`, por padrao `8082`.
 - `app`: Laravel em PHP-FPM.
 - `queue`: worker de filas Laravel.
 - `node`: instala dependencias JS e gera o build frontend.
@@ -37,14 +37,14 @@ O servico `node` executa automaticamente:
 - remocao de `public/hot` para garantir que o Laravel use os assets estaticos;
 - processo persistente para healthcheck e comandos de tooling.
 
-No fluxo Docker padrao, abra a aplicacao em `http://localhost:8080`. O navegador nao precisa acessar uma porta Vite separada.
+No fluxo Docker padrao, abra a aplicacao em `http://localhost:8082`. O navegador nao precisa acessar uma porta Vite separada.
 
 Rotas principais:
 
-- Landing page: `http://localhost:8080`
-- Login / cadastro: `http://localhost:8080/login`
-- Dashboard: `http://localhost:8080/admin`
-- Convite de exemplo: `http://localhost:8080/events/invitely-launch-night`
+- Landing page: `http://localhost:8082`
+- Login / cadastro: `http://localhost:8082/login`
+- Dashboard: `http://localhost:8082/admin`
+- Convite de exemplo: `http://localhost:8082/events/invitely-launch-night`
 
 ## Autenticacao
 

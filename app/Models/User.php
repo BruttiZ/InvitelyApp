@@ -26,6 +26,9 @@ class User extends Authenticatable
         'password',
         'role',
         'tenant_id',
+        'settings',
+        'notification_preferences',
+        'privacy_preferences',
     ];
 
     /**
@@ -48,6 +51,9 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'settings' => 'array',
+            'notification_preferences' => 'array',
+            'privacy_preferences' => 'array',
         ];
     }
 

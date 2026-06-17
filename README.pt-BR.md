@@ -4,7 +4,7 @@ Invitely e uma plataforma open source para convites digitais, RSVP, check-in por
 
 ## Como o projeto funciona
 
-O Nginx recebe as requisicoes em `http://localhost:8080` e encaminha PHP para o container `app`, que roda Laravel em PHP 8.4-FPM. O Laravel entrega a SPA React pelo Blade em `resources/views/app.blade.php`; o React assume as rotas publicas, login/cadastro e dashboard no navegador.
+O Nginx recebe as requisicoes em `http://localhost:8082` e encaminha PHP para o container `app`, que roda Laravel em PHP 8.4-FPM. O Laravel entrega a SPA React pelo Blade em `resources/views/app.blade.php`; o React assume as rotas publicas, login/cadastro e dashboard no navegador.
 
 As rotas da API ficam em `routes/api.php` com prefixo `/api/v1`. A pagina publica busca dados em `/api/v1/events/{slug}` e registra RSVP em `/api/v1/events/{slug}/rsvp`. Para o portfolio publicado na Vercel, o login/cadastro usa Supabase Auth e o dashboard em `/admin` muda conforme o papel salvo no metadata do usuario.
 
@@ -12,10 +12,10 @@ As rotas da API ficam em `routes/api.php` com prefixo `/api/v1`. A pagina public
 
 Abra:
 
-- Landing page: `http://localhost:8080`
-- Convite de exemplo: `http://localhost:8080/events/invitely-launch-night`
-- Login / cadastro: `http://localhost:8080/login`
-- Dashboard: `http://localhost:8080/admin`
+- Landing page: `http://localhost:8082`
+- Convite de exemplo: `http://localhost:8082/events/invitely-launch-night`
+- Login / cadastro: `http://localhost:8082/login`
+- Dashboard: `http://localhost:8082/admin`
 - Mailpit: `http://localhost:8025`
 - MinIO Console: `http://localhost:9001`
 
@@ -53,7 +53,7 @@ O app foi redesenhado para uma estética dark premium de SaaS moderno:
 
 | Servico    | Funcao                               | URL/porta padrao                                      |
 | ---------- | ------------------------------------ | ----------------------------------------------------- |
-| `nginx`    | Servidor web da aplicacao            | `http://localhost:8080`                               |
+| `nginx`    | Servidor web da aplicacao            | `http://localhost:8082`                               |
 | `app`      | Laravel / PHP-FPM                    | interno, porta `9000`                                 |
 | `queue`    | Worker de filas Laravel              | interno                                               |
 | `node`     | Instala dependencias JS e gera build | interno                                               |
@@ -117,7 +117,7 @@ docker compose down -v
 
 ## Desenvolvimento frontend
 
-No fluxo Docker padrao, abra sempre `http://localhost:8080`. O navegador nao precisa acessar uma porta Vite separada. O service worker fica desabilitado em ambiente local para evitar cache antigo durante desenvolvimento.
+No fluxo Docker padrao, abra sempre `http://localhost:8082`. O navegador nao precisa acessar uma porta Vite separada. O service worker fica desabilitado em ambiente local para evitar cache antigo durante desenvolvimento.
 
 Se quiser rodar ferramentas JS:
 
@@ -147,7 +147,7 @@ docker compose exec node npm run build
 docker compose restart nginx
 ```
 
-Depois abra novamente `http://localhost:8080` com reload forte no navegador.
+Depois abra novamente `http://localhost:8082` com reload forte no navegador.
 
 Se o login retornar erro de banco, confirme que o Docker esta usando PostgreSQL:
 

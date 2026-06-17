@@ -25,11 +25,13 @@ final class PublicRsvpController extends Controller
         }
 
         $rsvp = $this->confirmRsvp->execute($event, new RsvpData(
-            inviteToken: (string) $request->validated('invite_token'),
+            inviteToken: (string) ($request->validated('invite_token') ?? ''),
             status: (string) $request->validated('status'),
             companions: (int) $request->validated('companions'),
             message: $request->validated('message'),
             answers: $request->validated('answers'),
+            name: $request->validated('name'),
+            email: $request->validated('email'),
         ));
 
         return response()->json([

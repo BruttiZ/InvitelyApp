@@ -19,14 +19,17 @@ export default defineConfig({
     },
     server: {
         host: '0.0.0.0',
-        port: 5173,
+        port: 5174,
         origin: 'http://localhost:5174',
         hmr: {
             host: 'localhost',
             port: 5174,
         },
         cors: {
-            origin: ['http://localhost:8080', 'http://127.0.0.1:8080'],
+            origin: [
+                'http://localhost:8082',
+                'http://127.0.0.1:8082',
+            ],
         },
         watch: {
             ignored: ['**/storage/framework/views/**'],

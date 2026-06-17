@@ -11,6 +11,7 @@ type InviteData = {
     guest_name: string;
     guest_email: string;
     event_name: string;
+    event_slug: string;
     event_date?: string;
 };
 
@@ -78,9 +79,14 @@ export function InviteAcceptPage() {
         },
         onSuccess: () => {
             setStatus('accepted');
-            // Redirect to login after 2 seconds
             setTimeout(() => {
-                void navigate('/auth?mode=register&role=guest');
+                if (inviteData?.event_slug && token) {
+                    void navigate(`/events/${inviteData.event_slug}?invite=${encodeURIComponent(token)}`);
+
+                    return;
+                }
+
+                void navigate('/login');
             }, 2000);
         },
         onError: (error) => {

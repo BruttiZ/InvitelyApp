@@ -27,10 +27,18 @@ class InviteController extends Controller
         // For now, all invites are valid until explicitly rejected/accepted
 
         return response()->json([
+            'invite_token' => $guest->invite_token,
+            'guest_id' => $guest->id,
             'guest_name' => $guest->name,
             'guest_email' => $guest->email,
+            'guest_status' => $guest->status,
+            'max_companions' => $guest->max_companions,
+            'party_size' => $guest->party_size,
+            'event_id' => $guest->event_id,
             'event_name' => $guest->event->name ?? 'Evento',
-            'event_date' => $guest->event->date ?? null,
+            'event_slug' => $guest->event->slug,
+            'event_date' => $guest->event->starts_at,
+            'event_status' => $guest->event->status,
         ]);
     }
 
