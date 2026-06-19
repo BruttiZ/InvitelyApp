@@ -41,8 +41,8 @@ return [
     ],
 
     'go_api' => [
-        'url' => env('GO_API_URL'),
-        'internal_key' => env('GO_API_INTERNAL_KEY'),
+        'url' => env('INVITELY_API_BASE_URL', env('GO_API_URL')),
+        'api_key' => env('INVITELY_API_KEY', env('GO_API_INTERNAL_KEY')),
         'timeout' => (int) env('GO_API_TIMEOUT', 10),
     ],
 

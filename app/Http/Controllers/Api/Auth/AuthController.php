@@ -23,21 +23,19 @@ final class AuthController extends Controller
 {
     public function register(RegisterRequest $request): JsonResponse
     {
-        $tenant = Tenant::query()->firstOrCreate(
-            ['slug' => 'demo'],
-            [
-                'name' => 'Invitely Demo',
-                'plan' => 'community',
-                'settings' => ['locale' => 'pt_BR', 'timezone' => 'America/Sao_Paulo'],
-            ],
-        );
+        $role = (string) $request->validated('role');
+        $tenant = $role === 'owner'
+            ? $this->createTenantForOwner(
+                (string) ($request->validated('party_name') ?: $request->validated('name')),
+            )
+            : null;
 
         $user = User::query()->create([
-            'tenant_id' => $request->validated('role') === 'platform_admin' ? null : $tenant->id,
+            'tenant_id' => $tenant?->id,
             'name' => $request->validated('name'),
             'email' => $request->validated('email'),
             'password' => Hash::make((string) $request->validated('password')),
-            'role' => $request->validated('role'),
+            'role' => $role,
             'email_verified_at' => config('invitely.require_email_verification') ? null : now(),
         ]);
 
@@ -253,6 +251,26 @@ final class AuthController extends Controller
                 'privacy_preferences' => $user->privacy_preferences,
             ],
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function createTenantForOwner(string $name): Tenant
+    {
+        $baseSlug = Str::slug($name) ?: 'tenant';
+        $slug = $baseSlug;
+
+        while (Tenant::query()->where('slug', $slug)->exists()) {
+            $slug = $baseSlug.'-'.Str::lower(Str::random(6));
+        }
+
+        return Tenant::query()->create([
+            'name' => $name,
+            'slug' => $slug,
+            'plan' => 'community',
+            'settings' => ['locale' => 'pt_BR', 'timezone' => 'America/Sao_Paulo'],
+        ]);
     }
 
     /**

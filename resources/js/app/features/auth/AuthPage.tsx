@@ -49,6 +49,19 @@ type ApiAuthResponse = {
     errors?: Record<string, unknown>;
 };
 
+type DemoEnv = {
+    VITE_AUTH_ADMIN_EMAIL?: string;
+    VITE_AUTH_ADMIN_NAME?: string;
+    VITE_AUTH_GUEST_EMAIL?: string;
+    VITE_AUTH_GUEST_NAME?: string;
+    VITE_AUTH_OWNER_EMAIL?: string;
+    VITE_AUTH_OWNER_NAME?: string;
+    VITE_AUTH_PARTY_NAME?: string;
+};
+
+const demoEnv = import.meta.env as unknown as DemoEnv;
+const platformAdminDisabledMessage = 'Login e cadastro de admin da plataforma estao desativados temporariamente.';
+
 const roleOptions: {
     role: UserRole;
     title: string;
@@ -66,8 +79,8 @@ const roleOptions: {
         shortTitle: 'Admin',
         description: 'Cuida do software, tenants, saude operacional, suporte e governanca.',
         registerHint: 'Perfil interno para operar a plataforma e monitorar clientes.',
-        email: import.meta.env.VITE_DEMO_ADMIN_EMAIL ?? '',
-        defaultName: import.meta.env.VITE_DEMO_ADMIN_NAME ?? 'Admin Invitely',
+        email: demoEnv.VITE_AUTH_ADMIN_EMAIL ?? '',
+        defaultName: demoEnv.VITE_AUTH_ADMIN_NAME ?? 'Admin Invitely',
         gradient: 'from-[#A78BFA] to-[#0EA5E9]',
         icon: ShieldCheck,
     },
@@ -77,8 +90,8 @@ const roleOptions: {
         shortTitle: 'Organizador',
         description: 'Cria eventos, gerencia convidados, escolhe temas e acompanha RSVP.',
         registerHint: 'Ideal para cerimonialistas, anfitrioes e empresas que vendem eventos.',
-        email: import.meta.env.VITE_DEMO_OWNER_EMAIL ?? '',
-        defaultName: import.meta.env.VITE_DEMO_OWNER_NAME ?? 'Organizador',
+        email: demoEnv.VITE_AUTH_OWNER_EMAIL ?? '',
+        defaultName: demoEnv.VITE_AUTH_OWNER_NAME ?? 'Organizador',
         gradient: 'from-[#8B5CF6] to-[#22D3EE]',
         icon: CalendarDays,
     },
@@ -88,8 +101,8 @@ const roleOptions: {
         shortTitle: 'Convidado',
         description: 'Ve o convite, confirma presenca, salva QR Code e acompanha detalhes.',
         registerHint: 'Ideal para convidados acompanharem convite, RSVP e QR Code em um so lugar.',
-        email: import.meta.env.VITE_DEMO_GUEST_EMAIL ?? '',
-        defaultName: import.meta.env.VITE_DEMO_GUEST_NAME ?? 'Convidado',
+        email: demoEnv.VITE_AUTH_GUEST_EMAIL ?? '',
+        defaultName: demoEnv.VITE_AUTH_GUEST_NAME ?? 'Convidado',
         gradient: 'from-[#22C55E] to-[#22D3EE]',
         icon: TicketCheck,
     },
@@ -145,7 +158,7 @@ function stringifyApiMessage(value: unknown): string | null {
 }
 
 async function requestApiAuth(mode: AuthMode, payload: Record<string, string>): Promise<AuthSession> {
-    const response = await fetch(apiV1Url(mode === 'login' ? '/go/auth/login' : '/go/auth/register'), {
+    const response = await fetch(apiV1Url(mode === 'login' ? '/invitely/auth/login' : '/invitely/auth/register'), {
         method: 'POST',
         headers: {
             Accept: 'application/json',
@@ -218,23 +231,30 @@ export function AuthPage() {
     const [role, setRole] = useState<UserRole>('owner');
     const [statusMessage, setStatusMessage] = useState<string | null>(null);
     const [form, setForm] = useState({
-        name: import.meta.env.VITE_DEMO_OWNER_NAME ?? 'Organizador',
+        name: demoEnv.VITE_AUTH_OWNER_NAME ?? '',
         email: '',
         password: '',
         passwordConfirmation: '',
-        partyName: 'Invitely Launch Night',
+        partyName: demoEnv.VITE_AUTH_PARTY_NAME ?? '',
     });
 
     const selectedAccount = useMemo(() => roleOptions.find((account) => account.role === role), [role]);
+    const isSelectedAdminDisabled = role === 'platform_admin';
     const passwordStrength = useMemo(() => getPasswordStrength(form.password), [form.password]);
     const passwordsMatch = form.password.length > 0 && form.password === form.passwordConfirmation;
     const isRegisterValid =
         form.name.trim().length >= 2 && form.email.includes('@') && form.password.length >= 6 && passwordsMatch;
-    const canSubmit = mode === 'login' ? form.email.includes('@') && form.password.length >= 6 : isRegisterValid;
+    const canSubmit =
+        !isSelectedAdminDisabled &&
+        (mode === 'login' ? form.email.includes('@') && form.password.length >= 6 : isRegisterValid);
 
     const auth = useMutation({
         mutationFn: async (): Promise<AuthMutationResult> => {
             setStatusMessage(null);
+
+            if (isSelectedAdminDisabled) {
+                throw new Error(platformAdminDisabledMessage);
+            }
 
             if (mode === 'register') {
                 if (!isRegisterValid) {
@@ -270,11 +290,27 @@ export function AuthPage() {
     });
 
     function chooseLogin(account: (typeof roleOptions)[number]) {
+        if (account.role === 'platform_admin') {
+            selectRole(account);
+            setMode('login');
+            setStatusMessage(platformAdminDisabledMessage);
+
+            return;
+        }
+
         setMode('login');
         selectRole(account);
     }
 
     function chooseRegister(account: (typeof roleOptions)[number]) {
+        if (account.role === 'platform_admin') {
+            selectRole(account);
+            setMode('register');
+            setStatusMessage(platformAdminDisabledMessage);
+
+            return;
+        }
+
         setMode('register');
         selectRole(account, true);
     }
@@ -501,6 +537,10 @@ export function AuthPage() {
                                             : 'Crie sua conta e entre direto com autenticacao protegida por token.'}
                                     </p>
                                 </div>
+
+                                {isSelectedAdminDisabled && (
+                                    <FeedbackMessage message={platformAdminDisabledMessage} tone="warning" />
+                                )}
 
                                 <form className="mt-6 grid gap-3" onSubmit={submit}>
                                     {mode === 'register' && (

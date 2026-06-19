@@ -22,6 +22,8 @@ final class GoApiProxyController extends Controller
             'auth/me',
             'events',
             'events/*',
+            'events/*/budget',
+            'events/*/gifts',
             'guests',
             'dashboard',
             'analytics/events/*',
@@ -37,6 +39,11 @@ final class GoApiProxyController extends Controller
             'rsvp',
         ],
         'PUT' => [
+            'events/*',
+            'budget/*',
+            'gifts/*',
+        ],
+        'PATCH' => [
             'events/*',
             'budget/*',
             'gifts/*',
@@ -70,7 +77,7 @@ final class GoApiProxyController extends Controller
         try {
             $options = ['query' => $request->query()];
 
-            if (in_array($method, ['POST', 'PUT'], true)) {
+            if (in_array($method, ['POST', 'PUT', 'PATCH'], true)) {
                 $options['json'] = $request->isJson() ? $request->json()->all() : $request->all();
             }
 
@@ -120,14 +127,14 @@ final class GoApiProxyController extends Controller
     {
         $headers = [];
         $authorization = $request->header('Authorization');
-        $internalKey = config('services.go_api.internal_key');
+        $apiKey = config('services.go_api.api_key');
 
         if (is_string($authorization) && $authorization !== '') {
             $headers['Authorization'] = $authorization;
         }
 
-        if (is_string($internalKey) && $internalKey !== '') {
-            $headers['X-Internal-Api-Key'] = $internalKey;
+        if (is_string($apiKey) && $apiKey !== '') {
+            $headers['x-api-key'] = $apiKey;
         }
 
         return $headers;
