@@ -22,6 +22,7 @@ class RegisterRequest extends FormRequest
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
             'password' => ['required', 'string', 'min:8', 'max:120'],
             'role' => ['required', Rule::in(['owner', 'guest', 'platform_admin'])],
+            'party_name' => ['nullable', 'string', 'max:120'],
             'device_name' => ['nullable', 'string', 'max:120'],
         ];
     }

@@ -73,6 +73,21 @@ type StoredEventSummary = {
     image: string;
 };
 
+type GoEventResource = {
+    id?: string | number;
+    title?: string;
+    name?: string;
+    description?: string;
+    slug?: string;
+    status?: string;
+    starts_at?: string;
+    ends_at?: string | null;
+    location?: string;
+    hero_image_url?: string;
+    image_url?: string;
+    theme_id?: string;
+};
+
 type StoredPublicRsvp = {
     eventId: string;
     eventSlug: string;
@@ -88,64 +103,41 @@ const fallbackHeroImage =
     'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=1800&q=85';
 const fallbackMetrics = { accepted: 42, declined: 3, invited: 120 };
 
-const demoEvent: PublicEvent = {
-    id: 'demo',
-    source: 'demo',
-    name: 'Invitely Launch Night',
-    slug: 'invitely-launch-night',
+const loadingEvent: PublicEvent = {
+    id: 'loading',
+    source: 'laravel',
+    name: 'Carregando convite',
+    slug: '',
     status: 'published',
-    starts_at: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString(),
+    starts_at: new Date().toISOString(),
     ends_at: null,
     timezone: 'America/Sao_Paulo',
     venue: {
-        name: 'Atelier Vista',
-        address: 'Av. Paulista, 1000 - Sao Paulo, SP',
+        name: null,
+        address: null,
         latitude: null,
         longitude: null,
     },
-    spotify_playlist_url: 'https://open.spotify.com/playlist/37i9dQZF1DX4dyzvuaRJ0n',
+    spotify_playlist_url: null,
     hero: {
         eyebrow: 'Convite digital',
-        title: 'Invitely Launch Night',
-        subtitle: 'Uma noite para celebrar produto, comunidade e experiencias memoraveis.',
+        title: 'Carregando convite',
+        subtitle: 'Buscando os detalhes do evento.',
         image_url: fallbackHeroImage,
     },
     content: {
-        hosts: ['Equipe Invitely'],
-        schedule: [
-            { time: '19:00', title: 'Recepcao' },
-            { time: '20:30', title: 'Apresentacao' },
-            { time: '21:30', title: 'Celebracao' },
-        ],
-        dress_code: 'Smart casual',
-        note: 'Use seu QR Code na entrada para check-in rapido.',
+        hosts: [],
+        schedule: [],
+        dress_code: '',
+        note: '',
     },
     theme: { mode: 'dark', primary: '#8B5CF6', accent: '#22D3EE' },
-    gallery: [
-        {
-            url: 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1200&q=80',
-            alt: 'Palco iluminado',
-        },
-        {
-            url: 'https://images.unsplash.com/photo-1527529482837-4698179dc6ce?auto=format&fit=crop&w=1200&q=80',
-            alt: 'Celebracao do evento',
-        },
-        {
-            url: 'https://images.unsplash.com/photo-1511795409834-ef04bbd61622?auto=format&fit=crop&w=1200&q=80',
-            alt: 'Convidados reunidos',
-        },
-    ],
-    metrics: fallbackMetrics,
+    gallery: [],
+    metrics: { accepted: 0, declined: 0, invited: 0 },
 };
 
 function normalizeStoredEvent(event: StoredEventSummary): PublicEvent {
-    const startsAt = event.startsAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-    const localRsvps = readStoredPublicRsvps().filter(
-        (rsvp) => rsvp.eventId === event.id || rsvp.eventSlug === event.slug,
-    );
-    const accepted = localRsvps.filter((rsvp) => rsvp.status === 'accepted').length;
-    const declined = localRsvps.filter((rsvp) => rsvp.status === 'declined').length;
-    const invited = Math.max(event.confirmed, localRsvps.length, 1);
+    const startsAt = event.startsAt ?? new Date().toISOString();
 
     return {
         id: event.id,
@@ -167,7 +159,7 @@ function normalizeStoredEvent(event: StoredEventSummary): PublicEvent {
             eyebrow: 'Convite digital',
             title: event.title,
             subtitle: event.description ?? 'Confirme sua presenca e acompanhe os detalhes do evento.',
-            image_url: event.image,
+            image_url: event.image || fallbackHeroImage,
         },
         content: {
             hosts: ['Organizacao'],
@@ -184,8 +176,55 @@ function normalizeStoredEvent(event: StoredEventSummary): PublicEvent {
             note: 'Use seu QR Code na entrada para check-in rapido.',
         },
         theme: { mode: 'dark', primary: '#8B5CF6', accent: '#22D3EE' },
-        gallery: demoEvent.gallery,
-        metrics: { accepted, declined, invited },
+        gallery: [],
+        metrics: { accepted: event.confirmed, declined: 0, invited: Math.max(event.confirmed, 1) },
+    };
+}
+
+function normalizeGoEvent(event: GoEventResource, slug: string): PublicEvent {
+    const startsAt = event.starts_at ?? new Date().toISOString();
+    const title = event.name ?? event.title ?? 'Convite';
+    const location = event.location ?? 'Local a definir';
+
+    return {
+        id: String(event.id ?? slug),
+        source: 'go',
+        name: title,
+        slug: event.slug ?? slug,
+        status: event.status ?? 'published',
+        starts_at: startsAt,
+        ends_at: event.ends_at ?? null,
+        timezone: 'America/Sao_Paulo',
+        venue: {
+            name: location,
+            address: location,
+            latitude: null,
+            longitude: null,
+        },
+        spotify_playlist_url: null,
+        hero: {
+            eyebrow: 'Convite digital',
+            title,
+            subtitle: event.description ?? 'Confirme sua presenca e acompanhe os detalhes do evento.',
+            image_url: event.hero_image_url ?? event.image_url ?? fallbackHeroImage,
+        },
+        content: {
+            hosts: ['Organizacao'],
+            schedule: [
+                {
+                    time: new Intl.DateTimeFormat('pt-BR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                    }).format(new Date(startsAt)),
+                    title: 'Inicio do evento',
+                },
+            ],
+            dress_code: 'A definir',
+            note: 'Use seu QR Code na entrada para check-in rapido.',
+        },
+        theme: { mode: 'dark', primary: '#8B5CF6', accent: '#22D3EE' },
+        gallery: [],
+        metrics: { accepted: 0, declined: 0, invited: 1 },
     };
 }
 
@@ -203,6 +242,26 @@ function readStoredPublicRsvps(): StoredPublicRsvp[] {
     } catch {
         return [];
     }
+}
+
+function readStoredEvents(): StoredEventSummary[] {
+    const sources = ['invitely.publicPreviewEvent', 'invitely.eventOverrides', 'invitely.createdEvents'];
+
+    return sources.flatMap((key) => {
+        const raw = window.localStorage.getItem(key);
+
+        if (!raw) {
+            return [];
+        }
+
+        try {
+            const parsed = JSON.parse(raw) as StoredEventSummary | StoredEventSummary[];
+
+            return Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+            return [];
+        }
+    });
 }
 
 function writeStoredPublicRsvp(event: PublicEvent, form: RsvpFormState, status: RsvpStatus): void {
@@ -230,31 +289,13 @@ function writeStoredPublicRsvp(event: PublicEvent, form: RsvpFormState, status: 
     window.localStorage.setItem('invitely.publicRsvps', JSON.stringify(next));
 }
 
-function readStoredEvents(): StoredEventSummary[] {
-    const sources = ['invitely.publicPreviewEvent', 'invitely.eventOverrides', 'invitely.createdEvents'];
+async function fetchPublicEvent(slug: string, allowLocalPreview: boolean): Promise<PublicEvent> {
+    if (allowLocalPreview) {
+        const storedEvent = readStoredEvents().find((event) => event.slug === slug);
 
-    return sources.flatMap((key) => {
-        const raw = window.localStorage.getItem(key);
-
-        if (!raw) {
-            return [];
+        if (storedEvent) {
+            return normalizeStoredEvent(storedEvent);
         }
-
-        try {
-            const parsed = JSON.parse(raw) as StoredEventSummary | StoredEventSummary[];
-
-            return Array.isArray(parsed) ? parsed : [parsed];
-        } catch {
-            return [];
-        }
-    });
-}
-
-async function fetchPublicEvent(slug: string): Promise<PublicEvent> {
-    const storedEvent = readStoredEvents().find((event) => event.slug === slug);
-
-    if (storedEvent) {
-        return normalizeStoredEvent(storedEvent);
     }
 
     const publicResponse = await fetch(apiUrl(`/api/v1/events/${slug}`));
@@ -265,8 +306,14 @@ async function fetchPublicEvent(slug: string): Promise<PublicEvent> {
         return { ...payload.data, source: 'laravel' };
     }
 
-    if (slug === 'invitely-launch-night') {
-        return demoEvent;
+    const goResponse = await fetch(apiUrl(`/api/v1/invitely/events/${slug}`));
+
+    if (goResponse.ok) {
+        const payload = (await goResponse.json()) as { data?: GoEventResource };
+
+        if (payload.data) {
+            return normalizeGoEvent(payload.data, slug);
+        }
     }
 
     throw new Error('Convite nao encontrado. Verifique se o link do evento esta correto.');
@@ -300,6 +347,7 @@ export function PublicEventPage() {
     const { slug = 'invitely-launch-night' } = useParams();
     const [searchParams] = useSearchParams();
     const inviteToken = searchParams.get('invite') ?? searchParams.get('token') ?? '';
+    const allowLocalPreview = searchParams.get('preview') === '1';
     const session = getStoredSession();
     const [notice, setNotice] = useState('Informe seu e-mail para receber um codigo de verificacao.');
     const [responseStatus, setResponseStatus] = useState<RsvpStatus | null>(null);
@@ -337,11 +385,11 @@ export function PublicEventPage() {
         queryKey: ['public-event', inviteQuery.data?.event_slug ?? slug],
         retry: false,
         queryFn: async () => {
-            return fetchPublicEvent(inviteQuery.data?.event_slug ?? slug);
+            return fetchPublicEvent(inviteQuery.data?.event_slug ?? slug, allowLocalPreview);
         },
     });
 
-    const event = eventQuery.data ?? demoEvent;
+    const event = eventQuery.data ?? loadingEvent;
     const maxCompanions = inviteQuery.data?.max_companions ?? 5;
     const rsvpForm: RsvpFormState = inviteQuery.data
         ? {
@@ -432,7 +480,7 @@ export function PublicEventPage() {
             }
 
             if (event.source === 'go') {
-                const goResponse = await fetch(apiUrl('/api/v1/go/rsvp'), {
+                const goResponse = await fetch(apiUrl('/api/v1/invitely/rsvp'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
                     body: JSON.stringify(body),
