@@ -88,20 +88,8 @@ type GoEventResource = {
     theme_id?: string;
 };
 
-type StoredPublicRsvp = {
-    eventId: string;
-    eventSlug: string;
-    name: string;
-    email: string;
-    status: RsvpStatus;
-    companions: number;
-    message: string;
-    respondedAt: string;
-};
-
 const fallbackHeroImage =
     'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=1800&q=85';
-const fallbackMetrics = { accepted: 42, declined: 3, invited: 120 };
 
 const loadingEvent: PublicEvent = {
     id: 'loading',
@@ -228,22 +216,6 @@ function normalizeGoEvent(event: GoEventResource, slug: string): PublicEvent {
     };
 }
 
-function readStoredPublicRsvps(): StoredPublicRsvp[] {
-    const raw = window.localStorage.getItem('invitely.publicRsvps');
-
-    if (!raw) {
-        return [];
-    }
-
-    try {
-        const parsed = JSON.parse(raw) as StoredPublicRsvp[];
-
-        return Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return [];
-    }
-}
-
 function readStoredEvents(): StoredEventSummary[] {
     const sources = ['invitely.publicPreviewEvent', 'invitely.eventOverrides', 'invitely.createdEvents'];
 
@@ -262,31 +234,6 @@ function readStoredEvents(): StoredEventSummary[] {
             return [];
         }
     });
-}
-
-function writeStoredPublicRsvp(event: PublicEvent, form: RsvpFormState, status: RsvpStatus): void {
-    const record: StoredPublicRsvp = {
-        eventId: event.id,
-        eventSlug: event.slug,
-        name: form.name.trim(),
-        email: form.email.trim().toLowerCase(),
-        status,
-        companions: form.companions,
-        message: form.message.trim(),
-        respondedAt: new Date().toISOString(),
-    };
-    const next = [
-        record,
-        ...readStoredPublicRsvps().filter(
-            (rsvp) =>
-                !(
-                    (rsvp.eventId === record.eventId || rsvp.eventSlug === record.eventSlug) &&
-                    rsvp.email.toLowerCase() === record.email
-                ),
-        ),
-    ];
-
-    window.localStorage.setItem('invitely.publicRsvps', JSON.stringify(next));
 }
 
 async function fetchPublicEvent(slug: string, allowLocalPreview: boolean): Promise<PublicEvent> {
@@ -405,8 +352,8 @@ export function PublicEventPage() {
         : notice;
     const countdown = useCountdown(event.starts_at);
     const heroImage = event.hero.image_url ?? fallbackHeroImage;
-    const accepted = event.metrics?.accepted ?? fallbackMetrics.accepted;
-    const invited = event.metrics?.invited ?? fallbackMetrics.invited;
+    const accepted = event.metrics?.accepted ?? 0;
+    const invited = event.metrics?.invited ?? 0;
     const rsvpRate = Math.min(100, Math.round((accepted / Math.max(1, invited)) * 100));
     const formattedDate = new Intl.DateTimeFormat('pt-BR', {
         day: '2-digit',
@@ -420,12 +367,6 @@ export function PublicEventPage() {
 
     const requestCode = useMutation({
         mutationFn: async () => {
-            if (event.id === 'demo') {
-                await new Promise((resolve) => window.setTimeout(resolve, 500));
-
-                return { message: 'Codigo enviado. Confira os 6 digitos para continuar.' };
-            }
-
             const response = await fetch(apiUrl('/api/v1/rsvp/request-code'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -450,15 +391,6 @@ export function PublicEventPage() {
 
     const directRsvp = useMutation({
         mutationFn: async (status: RsvpStatus) => {
-            if (event.id === 'demo') {
-                await new Promise((resolve) => window.setTimeout(resolve, 500));
-                writeStoredPublicRsvp(event, rsvpForm, status);
-
-                return {
-                    message: status === 'accepted' ? 'Presenca confirmada!' : 'Voce recusou o convite.',
-                };
-            }
-
             const body = {
                 event_id: event.id,
                 event_slug: event.slug,
@@ -490,14 +422,8 @@ export function PublicEventPage() {
                     return (await goResponse.json()) as { message: string };
                 }
 
-                writeStoredPublicRsvp(event, rsvpForm, status);
-
-                return {
-                    message:
-                        status === 'accepted'
-                            ? 'Presenca confirmada! O organizador ja pode ver seu e-mail no painel.'
-                            : 'Resposta registrada. O organizador ja pode ver sua recusa no painel.',
-                };
+                const payload = (await goResponse.json().catch(() => null)) as { message?: string } | null;
+                throw new Error(payload?.message ?? 'Nao foi possivel registrar sua resposta agora.');
             }
 
             const payload = (await localResponse.json().catch(() => null)) as { message?: string } | null;
@@ -512,14 +438,6 @@ export function PublicEventPage() {
 
     const verifyCode = useMutation({
         mutationFn: async (status: RsvpStatus) => {
-            if (event.id === 'demo') {
-                await new Promise((resolve) => window.setTimeout(resolve, 500));
-
-                return {
-                    message: status === 'accepted' ? 'Presenca confirmada!' : 'Voce recusou o convite.',
-                };
-            }
-
             const response = await fetch(apiUrl('/api/v1/rsvp/verify-code'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Accept: 'application/json' },

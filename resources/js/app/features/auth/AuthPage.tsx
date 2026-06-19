@@ -3,7 +3,6 @@ import { motion } from 'framer-motion';
 import {
     AlertTriangle,
     ArrowRight,
-    BarChart3,
     Building2,
     CalendarDays,
     CheckCircle2,
@@ -12,11 +11,9 @@ import {
     EyeOff,
     Loader2,
     PartyPopper,
-    QrCode,
     ShieldCheck,
     Sparkles,
     TicketCheck,
-    UsersRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { SyntheticEvent, useMemo, useState } from 'react';
@@ -49,17 +46,6 @@ type ApiAuthResponse = {
     errors?: Record<string, unknown>;
 };
 
-type DemoEnv = {
-    VITE_AUTH_ADMIN_EMAIL?: string;
-    VITE_AUTH_ADMIN_NAME?: string;
-    VITE_AUTH_GUEST_EMAIL?: string;
-    VITE_AUTH_GUEST_NAME?: string;
-    VITE_AUTH_OWNER_EMAIL?: string;
-    VITE_AUTH_OWNER_NAME?: string;
-    VITE_AUTH_PARTY_NAME?: string;
-};
-
-const demoEnv = import.meta.env as unknown as DemoEnv;
 const platformAdminDisabledMessage = 'Login e cadastro de admin da plataforma estao desativados temporariamente.';
 
 const roleOptions: {
@@ -68,8 +54,6 @@ const roleOptions: {
     shortTitle: string;
     description: string;
     registerHint: string;
-    email: string;
-    defaultName: string;
     gradient: string;
     icon: LucideIcon;
 }[] = [
@@ -79,8 +63,6 @@ const roleOptions: {
         shortTitle: 'Admin',
         description: 'Cuida do software, tenants, saude operacional, suporte e governanca.',
         registerHint: 'Perfil interno para operar a plataforma e monitorar clientes.',
-        email: demoEnv.VITE_AUTH_ADMIN_EMAIL ?? '',
-        defaultName: demoEnv.VITE_AUTH_ADMIN_NAME ?? 'Admin Invitely',
         gradient: 'from-[#A78BFA] to-[#0EA5E9]',
         icon: ShieldCheck,
     },
@@ -90,8 +72,6 @@ const roleOptions: {
         shortTitle: 'Organizador',
         description: 'Cria eventos, gerencia convidados, escolhe temas e acompanha RSVP.',
         registerHint: 'Ideal para cerimonialistas, anfitrioes e empresas que vendem eventos.',
-        email: demoEnv.VITE_AUTH_OWNER_EMAIL ?? '',
-        defaultName: demoEnv.VITE_AUTH_OWNER_NAME ?? 'Organizador',
         gradient: 'from-[#8B5CF6] to-[#22D3EE]',
         icon: CalendarDays,
     },
@@ -101,18 +81,9 @@ const roleOptions: {
         shortTitle: 'Convidado',
         description: 'Ve o convite, confirma presenca, salva QR Code e acompanha detalhes.',
         registerHint: 'Ideal para convidados acompanharem convite, RSVP e QR Code em um so lugar.',
-        email: demoEnv.VITE_AUTH_GUEST_EMAIL ?? '',
-        defaultName: demoEnv.VITE_AUTH_GUEST_NAME ?? 'Convidado',
         gradient: 'from-[#22C55E] to-[#22D3EE]',
         icon: TicketCheck,
     },
-];
-
-const previewMetrics = [
-    { label: 'Eventos', value: '24', icon: CalendarDays },
-    { label: 'Convidados', value: '1.204', icon: UsersRound },
-    { label: 'RSVP', value: '76%', icon: BarChart3 },
-    { label: 'Check-ins', value: '846', icon: QrCode },
 ];
 
 function destinationFor(role: UserRole): string {
@@ -125,16 +96,6 @@ function destinationFor(role: UserRole): string {
 
 function normalizeRole(role: unknown): UserRole {
     return role === 'guest' || role === 'platform_admin' || role === 'owner' ? role : 'owner';
-}
-
-function uniqueEmail(email: string): string {
-    const [localPart, domain] = email.split('@');
-
-    if (!localPart || !domain) {
-        return email;
-    }
-
-    return `${localPart}+novo-${Date.now().toString().slice(-4)}@${domain}`;
 }
 
 function stringifyApiMessage(value: unknown): string | null {
@@ -231,11 +192,11 @@ export function AuthPage() {
     const [role, setRole] = useState<UserRole>('owner');
     const [statusMessage, setStatusMessage] = useState<string | null>(null);
     const [form, setForm] = useState({
-        name: demoEnv.VITE_AUTH_OWNER_NAME ?? '',
+        name: '',
         email: '',
         password: '',
         passwordConfirmation: '',
-        partyName: demoEnv.VITE_AUTH_PARTY_NAME ?? '',
+        partyName: '',
     });
 
     const selectedAccount = useMemo(() => roleOptions.find((account) => account.role === role), [role]);
@@ -312,16 +273,16 @@ export function AuthPage() {
         }
 
         setMode('register');
-        selectRole(account, true);
+        selectRole(account);
     }
 
-    function selectRole(account: (typeof roleOptions)[number], useUniqueEmail = false) {
+    function selectRole(account: (typeof roleOptions)[number]) {
         setRole(account.role);
         setStatusMessage(null);
         setForm((current) => ({
             ...current,
-            name: account.defaultName,
-            email: useUniqueEmail ? uniqueEmail(account.email) : account.email,
+            name: '',
+            email: '',
             password: '',
             passwordConfirmation: '',
         }));
@@ -615,7 +576,7 @@ export function AuthPage() {
                                     {auth.isError && (
                                         <FeedbackMessage message={formatErrorMessage(auth.error)} tone="warning" />
                                     )}
-                                    {statusMessage && <FeedbackMessage message={statusMessage} tone="success" />}
+                                    {statusMessage && <FeedbackMessage message={statusMessage} tone="warning" />}
                                 </form>
 
                                 <div className="mt-5 grid gap-3 rounded-2xl border border-[#263247] bg-[#121827] p-4 text-sm text-[#CBD5E1]">
@@ -710,67 +671,15 @@ function PreviewCard({ role }: { role: UserRole }) {
                         </div>
                         <span className="rounded-lg bg-[#8B5CF6] px-3 py-2 text-xs font-bold">Produção</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                        {previewMetrics.map((metric) => (
-                            <div key={metric.label} className="rounded-xl border border-[#263247] bg-[#121827] p-3">
-                                <metric.icon className="h-4 w-4 text-[#22D3EE]" />
-                                <div className="mt-3 text-2xl font-bold">{metric.value}</div>
-                                <div className="text-xs text-[#94A3B8]">{metric.label}</div>
-                            </div>
-                        ))}
-                    </div>
                     <div className="rounded-xl border border-[#263247] bg-[#121827] p-4">
-                        <div className="mb-4 flex items-center justify-between text-sm">
-                            <span>Atividade dos ultimos 7 dias</span>
-                            <span className="rounded-lg bg-[#1A1F2E] px-2 py-1 text-xs text-[#CBD5E1]">312 hoje</span>
+                        <div className="flex items-center justify-between gap-4 text-sm">
+                            <span>Dados reais aparecem depois do login pela API.</span>
+                            <CheckCircle2 className="h-5 w-5 text-[#22C55E]" />
                         </div>
-                        <MiniLineChart />
                     </div>
                 </div>
             </div>
         </motion.article>
-    );
-}
-
-function MiniLineChart() {
-    const points = '0,72 72,48 144,60 216,24 288,44 360,32 432,22';
-
-    return (
-        <svg viewBox="0 0 432 96" className="h-28 w-full overflow-visible">
-            <defs>
-                <linearGradient id="authLine" x1="0" x2="1" y1="0" y2="0">
-                    <stop offset="0%" stopColor="#22D3EE" />
-                    <stop offset="100%" stopColor="#8B5CF6" />
-                </linearGradient>
-                <linearGradient id="authArea" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.35" />
-                    <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0" />
-                </linearGradient>
-            </defs>
-            <polyline points={`${points} 432,96 0,96`} fill="url(#authArea)" opacity="0.8" />
-            <motion.polyline
-                points={points}
-                fill="none"
-                stroke="url(#authLine)"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 1.2, ease: 'easeOut' }}
-            />
-            {[
-                [0, 72],
-                [72, 48],
-                [144, 60],
-                [216, 24],
-                [288, 44],
-                [360, 32],
-                [432, 22],
-            ].map(([x, y]) => (
-                <circle key={`${String(x)}-${String(y)}`} cx={x} cy={y} r="4" fill="#22D3EE" />
-            ))}
-        </svg>
     );
 }
 

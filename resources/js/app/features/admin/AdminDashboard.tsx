@@ -90,17 +90,6 @@ type GuestRow = {
     status: string;
 };
 
-type StoredPublicRsvp = {
-    eventId: string;
-    eventSlug: string;
-    name: string;
-    email: string;
-    status: 'accepted' | 'declined';
-    companions: number;
-    message: string;
-    respondedAt: string;
-};
-
 type GuestResource = {
     id?: string | number;
     name?: string;
@@ -509,22 +498,6 @@ function writeStoredObject(key: string, value: unknown): void {
     window.localStorage.setItem(key, JSON.stringify(value));
 }
 
-function readStoredPublicRsvps(): StoredPublicRsvp[] {
-    const raw = window.localStorage.getItem('invitely.publicRsvps');
-
-    if (!raw) {
-        return [];
-    }
-
-    try {
-        const parsed = JSON.parse(raw) as StoredPublicRsvp[];
-
-        return Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return [];
-    }
-}
-
 function userSettingsKey(userId: string | number): string {
     return `invitely.userSettings.${String(userId)}`;
 }
@@ -630,9 +603,7 @@ function uniqueGuestsByEmail(guests: GuestRow[]): GuestRow[] {
 }
 
 function countAcceptedPublicRsvps(event: CreatedEventSummary): number {
-    return readStoredPublicRsvps().filter(
-        (rsvp) => (rsvp.eventId === event.id || rsvp.eventSlug === event.slug) && rsvp.status === 'accepted',
-    ).length;
+    return event.confirmed;
 }
 
 function navigationFor(user: AuthUser): NavigationItem[] {
@@ -868,16 +839,7 @@ export function AdminDashboard() {
     });
     const reminderGuests =
         activeReminderEventId === planningEventId ? (planningGuestsQuery.data ?? []) : (reminderGuestsQuery.data ?? []);
-    const publicRsvpGuests = readStoredPublicRsvps()
-        .filter((rsvp) => events.some((event) => event.id === rsvp.eventId || event.slug === rsvp.eventSlug))
-        .map(
-            (rsvp): GuestRow => ({
-                name: rsvp.name || rsvp.email,
-                email: rsvp.email,
-                status: rsvp.status === 'accepted' ? 'Confirmado' : 'Recusado',
-            }),
-        );
-    const planningGuests = uniqueGuestsByEmail([...(planningGuestsQuery.data ?? []), ...publicRsvpGuests]);
+    const planningGuests = uniqueGuestsByEmail(planningGuestsQuery.data ?? []);
     const isLoadingReminderGuests =
         activeReminderEventId === planningEventId ? planningGuestsQuery.isLoading : reminderGuestsQuery.isLoading;
     const reminderGuestsError =
@@ -2901,8 +2863,6 @@ function SettingsView({
     const [savedAt, setSavedAt] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
 
-    const isLocalSession = token.startsWith('demo-') || token.startsWith('super-user-token-');
-
     async function saveSettings(): Promise<void> {
         setError(null);
 
@@ -2930,20 +2890,18 @@ function SettingsView({
                 privacy_preferences: draft.privacy_preferences,
             };
 
-            if (!isLocalSession) {
-                const response = await fetch(apiV1Url('/admin/me'), {
-                    method: 'PATCH',
-                    headers: authHeaders(token),
-                    body: JSON.stringify(updatedUser),
-                });
+            const response = await fetch(apiV1Url('/admin/me'), {
+                method: 'PATCH',
+                headers: authHeaders(token),
+                body: JSON.stringify(updatedUser),
+            });
 
-                if (!response.ok) {
-                    throw await responseError(response, 'Nao foi possivel salvar as configuracoes.');
-                }
-
-                const payload = (await response.json()) as { data?: { user?: AuthUser } };
-                updatedUser = payload.data?.user ?? updatedUser;
+            if (!response.ok) {
+                throw await responseError(response, 'Nao foi possivel salvar as configuracoes.');
             }
+
+            const payload = (await response.json()) as { data?: { user?: AuthUser } };
+            updatedUser = payload.data?.user ?? updatedUser;
 
             writeStoredObject(storageKey, {
                 name: updatedUser.name,
@@ -3012,12 +2970,6 @@ function SettingsView({
                         {error}
                     </p>
                 ) : null}
-                {isLocalSession ? (
-                    <p className="mb-4 rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/10 p-3 text-sm text-[#FDE68A]">
-                        Sessao local de demonstracao: os ajustes serao salvos neste navegador.
-                    </p>
-                ) : null}
-
                 {activeTab === 'profile' ? (
                     <div className="grid gap-4 md:grid-cols-2">
                         <SettingsField label="Nome publico">

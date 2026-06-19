@@ -149,7 +149,7 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
                 throw new Error('URL do evento e obrigatoria.');
             }
 
-            if (!session?.token || session.token.startsWith('demo-') || session.token.startsWith('super-user-token-')) {
+            if (!session?.token) {
                 throw new Error('Entre com uma conta autorizada para criar eventos.');
             }
 
