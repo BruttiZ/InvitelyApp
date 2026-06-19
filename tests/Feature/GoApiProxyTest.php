@@ -4,8 +4,8 @@ use Illuminate\Support\Facades\Http;
 
 it('forwards allowed requests to the configured go api', function (): void {
     config([
-        'services.go_api.url' => 'https://go-api.test',
-        'services.go_api.api_key' => 'secret-key',
+        'services.invitely.base_url' => 'https://go-api.test',
+        'services.invitely.api_key' => 'secret-key',
     ]);
 
     Http::fake([
@@ -32,11 +32,11 @@ it('forwards allowed requests to the configured go api', function (): void {
 });
 
 it('blocks routes that are not in the go api proxy allowlist', function (): void {
-    config(['services.go_api.url' => 'https://go-api.test']);
+    config(['services.invitely.base_url' => 'https://go-api.test']);
 
     Http::fake();
 
-    $this->getJson('/api/v1/go/swagger/doc.json')
+    $this->getJson('/api/v1/invitely/swagger/doc.json')
         ->assertNotFound()
         ->assertJsonPath('error', 'proxy_route_not_allowed');
 
@@ -45,8 +45,8 @@ it('blocks routes that are not in the go api proxy allowlist', function (): void
 
 it('forwards write requests for events budget and gifts', function (): void {
     config([
-        'services.go_api.url' => 'https://go-api.test',
-        'services.go_api.api_key' => 'secret-key',
+        'services.invitely.base_url' => 'https://go-api.test',
+        'services.invitely.api_key' => 'secret-key',
     ]);
 
     Http::fake([
@@ -95,13 +95,13 @@ it('forwards write requests for events budget and gifts', function (): void {
 
 it('rejects insecure go api urls in production', function (): void {
     app()->detectEnvironment(fn () => 'production');
-    config(['services.go_api.url' => 'http://localhost:8080']);
+    config(['services.invitely.base_url' => 'http://localhost:8080']);
 
     Http::fake();
 
-    $this->getJson('/api/v1/go/health')
+    $this->getJson('/api/v1/invitely/health')
         ->assertStatus(500)
-        ->assertJsonPath('error', 'go_api_url_invalid');
+        ->assertJsonPath('error', 'invitely_api_url_invalid');
 
     Http::assertNothingSent();
 });

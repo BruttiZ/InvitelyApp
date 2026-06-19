@@ -1,6 +1,6 @@
 export type PublicEvent = {
     id: string;
-    source?: 'laravel' | 'go' | 'demo';
+    source?: 'laravel' | 'go';
     name: string;
     slug: string;
     status: string;

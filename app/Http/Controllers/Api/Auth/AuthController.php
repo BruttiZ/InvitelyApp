@@ -253,9 +253,6 @@ final class AuthController extends Controller
         ];
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function createTenantForOwner(string $name): Tenant
     {
         $baseSlug = Str::slug($name) ?: 'tenant';

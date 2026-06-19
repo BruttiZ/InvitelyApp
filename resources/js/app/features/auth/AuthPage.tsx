@@ -364,11 +364,8 @@ export function AuthPage() {
                         </Link>
                     </nav>
                     <div className="flex items-center gap-2">
-                        <Link
-                            to="/events/invitely-launch-night"
-                            className="hidden text-sm text-[#94A3B8] transition hover:text-white sm:block"
-                        >
-                            Ver convite
+                        <Link to="/" className="hidden text-sm text-[#94A3B8] transition hover:text-white sm:block">
+                            Inicio
                         </Link>
                         <button
                             type="button"

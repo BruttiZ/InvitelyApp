@@ -344,7 +344,7 @@ function useCountdown(date: string): CountdownItem[] {
 }
 
 export function PublicEventPage() {
-    const { slug = 'invitely-launch-night' } = useParams();
+    const { slug = '' } = useParams();
     const [searchParams] = useSearchParams();
     const inviteToken = searchParams.get('invite') ?? searchParams.get('token') ?? '';
     const allowLocalPreview = searchParams.get('preview') === '1';
