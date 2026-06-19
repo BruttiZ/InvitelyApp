@@ -40,10 +40,10 @@ return [
         'anon_key' => env('SUPABASE_ANON_KEY', env('VITE_SUPABASE_ANON_KEY', env('NEXT_PUBLIC_SUPABASE_ANON_KEY'))),
     ],
 
-    'go_api' => [
-        'url' => env('GO_API_URL'),
-        'internal_key' => env('GO_API_INTERNAL_KEY'),
-        'timeout' => (int) env('GO_API_TIMEOUT', 10),
+    'invitely' => [
+        'base_url' => env('INVITELY_API_BASE_URL'),
+        'api_key' => env('INVITELY_API_KEY'),
+        'timeout' => (int) env('INVITELY_API_TIMEOUT', 30),
     ],
 
 ];

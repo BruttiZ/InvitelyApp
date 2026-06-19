@@ -1,16 +1,5 @@
 import { motion } from 'framer-motion';
-import {
-    ArrowRight,
-    BarChart3,
-    CalendarDays,
-    CheckCircle2,
-    ChevronDown,
-    LayoutDashboard,
-    QrCode,
-    Sparkles,
-    UsersRound,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { ArrowRight, BarChart3, CheckCircle2, ChevronDown, LayoutDashboard, QrCode, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const benefits = [
@@ -29,19 +18,6 @@ const benefits = [
         description: 'Acompanhe métricas e insights para tomar decisões melhores durante o evento.',
         icon: BarChart3,
     },
-];
-
-const recentEvents = [
-    { name: 'Invitely Launch Night', status: 'Publicado', confirmed: '180 confirmados' },
-    { name: 'Founders Dinner', status: 'Rascunho', confirmed: '64 confirmados' },
-    { name: 'Aurora Summit', status: 'Publicado', confirmed: '920 confirmados' },
-];
-
-const dashboardMetrics: { label: string; value: string; icon: LucideIcon }[] = [
-    { label: 'Eventos', value: '24', icon: CalendarDays },
-    { label: 'Convidados', value: '1.204', icon: UsersRound },
-    { label: 'RSVP', value: '76%', icon: BarChart3 },
-    { label: 'Check-ins', value: '846', icon: QrCode },
 ];
 
 export function LandingPage() {
@@ -160,38 +136,11 @@ export function LandingPage() {
                                             Novo evento
                                         </span>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                                        {dashboardMetrics.map((metric) => (
-                                            <div
-                                                key={metric.label}
-                                                className="rounded-xl border border-[#263247] bg-[#121827] p-3"
-                                            >
-                                                <metric.icon className="h-4 w-4 text-[#22D3EE]" />
-                                                <div className="mt-3 text-2xl font-bold">{metric.value}</div>
-                                                <div className="text-xs text-[#94A3B8]">{metric.label}</div>
-                                            </div>
-                                        ))}
-                                    </div>
                                     <div className="rounded-xl border border-[#263247] bg-[#121827] p-4">
                                         <div className="mb-4 flex items-center justify-between text-sm">
                                             <span>Confirmações nos últimos 7 dias</span>
-                                            <span className="rounded-lg bg-[#1A1F2E] px-2 py-1 text-xs text-[#CBD5E1]">
-                                                312 hoje
-                                            </span>
+                                            <CheckCircle2 className="h-5 w-5 shrink-0 text-[#22C55E]" />
                                         </div>
-                                        <MiniLineChart />
-                                    </div>
-                                    <div className="grid gap-3 md:grid-cols-3">
-                                        {recentEvents.map((event) => (
-                                            <div
-                                                key={event.name}
-                                                className="rounded-xl border border-[#263247] bg-[#121827] p-3"
-                                            >
-                                                <p className="text-sm font-semibold">{event.name}</p>
-                                                <p className="mt-1 text-xs text-[#94A3B8]">{event.status}</p>
-                                                <p className="mt-3 text-xs text-[#22D3EE]">{event.confirmed}</p>
-                                            </div>
-                                        ))}
                                     </div>
                                 </div>
                             </div>
@@ -224,47 +173,5 @@ export function LandingPage() {
                 </section>
             </section>
         </main>
-    );
-}
-
-function MiniLineChart() {
-    const points = '0,72 72,48 144,60 216,24 288,44 360,32 432,22';
-
-    return (
-        <svg viewBox="0 0 432 96" className="h-32 w-full overflow-visible">
-            <defs>
-                <linearGradient id="landingLine" x1="0" x2="1" y1="0" y2="0">
-                    <stop offset="0%" stopColor="#22D3EE" />
-                    <stop offset="100%" stopColor="#8B5CF6" />
-                </linearGradient>
-                <linearGradient id="landingArea" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.35" />
-                    <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0" />
-                </linearGradient>
-            </defs>
-            <polyline points={`${points} 432,96 0,96`} fill="url(#landingArea)" opacity="0.8" />
-            <motion.polyline
-                points={points}
-                fill="none"
-                stroke="url(#landingLine)"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 1.2, ease: 'easeOut' }}
-            />
-            {[
-                [0, 72],
-                [72, 48],
-                [144, 60],
-                [216, 24],
-                [288, 44],
-                [360, 32],
-                [432, 22],
-            ].map(([x, y]) => (
-                <circle key={`${String(x)}-${String(y)}`} cx={x} cy={y} r="4" fill="#22D3EE" />
-            ))}
-        </svg>
     );
 }

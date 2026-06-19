@@ -1,5 +1,5 @@
 const CACHE_NAME = 'invitely-static-shell-v1';
-const SHELL_ASSETS = ['/', '/events/invitely-launch-night', '/manifest.webmanifest', '/pwa-icon.svg'];
+const SHELL_ASSETS = ['/', '/manifest.webmanifest', '/pwa-icon.svg'];
 
 self.addEventListener('install', (event) => {
     event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS)));

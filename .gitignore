@@ -1,4 +1,7 @@
 *.log
+*.md
+!README.md
+!README.*.md
 .DS_Store
 .env
 .env.backup

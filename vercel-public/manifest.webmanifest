@@ -4,7 +4,7 @@
     "description": "Convites digitais premium com RSVP, QR Code e painel de eventos.",
     "id": "/",
     "scope": "/",
-    "start_url": "/events/invitely-launch-night",
+    "start_url": "/",
     "display": "standalone",
     "background_color": "#020617",
     "theme_color": "#020617",
@@ -18,11 +18,6 @@
         }
     ],
     "shortcuts": [
-        {
-            "name": "Evento demo",
-            "short_name": "Demo",
-            "url": "/events/invitely-launch-night"
-        },
         {
             "name": "Admin",
             "short_name": "Admin",

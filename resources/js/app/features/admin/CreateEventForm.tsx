@@ -1,10 +1,21 @@
 import { useMutation } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { AlertTriangle, ArrowLeft, Calendar, CheckCircle2, Clock, Loader2, MapPin, Sparkles } from 'lucide-react';
+import {
+    AlertTriangle,
+    ArrowLeft,
+    Calendar,
+    CheckCircle2,
+    Clock,
+    ImagePlus,
+    Loader2,
+    MapPin,
+    Sparkles,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 import { SyntheticEvent, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiV1Url, authHeaders } from '../../../lib/api';
+import { siteUrl } from '../../../lib/site';
 import { getStoredSession } from '../../auth/session';
 
 export type CreatedEventSummary = {
@@ -44,6 +55,9 @@ type CreateEventResponse = {
         ends_at?: string;
         status?: string;
         location?: string;
+        hero_image_url?: string;
+        image_url?: string;
+        theme_id?: string;
     };
 };
 
@@ -53,6 +67,24 @@ type CreateEventResult = {
 };
 
 const defaultImage = 'https://images.unsplash.com/photo-1519167758481-83f550bb49b3?auto=format&fit=crop&w=1200&q=80';
+
+const eventThemes = [
+    {
+        id: 'gala',
+        name: 'Gala',
+        image: 'https://images.unsplash.com/photo-1519167758481-83f550bb49b3?auto=format&fit=crop&w=1200&q=80',
+    },
+    {
+        id: 'festival',
+        name: 'Festival',
+        image: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=1200&q=80',
+    },
+    {
+        id: 'garden',
+        name: 'Jardim',
+        image: 'https://images.unsplash.com/photo-1464366400600-7168b8af9bc3?auto=format&fit=crop&w=1200&q=80',
+    },
+];
 
 function eventSlug(value: string): string {
     return value
@@ -80,6 +112,8 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
         address: '',
         spotifyPlaylistUrl: '',
         capacity: '',
+        themeId: eventThemes[0]?.id ?? 'gala',
+        imageUrl: eventThemes[0]?.image ?? defaultImage,
     });
 
     const preview = useMemo<CreatedEventSummary>(
@@ -92,10 +126,11 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
             status: 'Rascunho',
             confirmed: 0,
             rsvp: 0,
-            image: defaultImage,
+            image: form.imageUrl || defaultImage,
         }),
-        [form.name, form.slug, form.startsAt, form.venueName],
+        [form.imageUrl, form.name, form.slug, form.startsAt, form.venueName],
     );
+    const inviteUrl = preview.slug ? siteUrl(`/events/${preview.slug}`) : '';
 
     const createEvent = useMutation<CreateEventResult>({
         mutationFn: async (): Promise<CreateEventResult> => {
@@ -114,7 +149,7 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
                 throw new Error('URL do evento e obrigatoria.');
             }
 
-            if (!session?.token || session.token.startsWith('demo-') || session.token.startsWith('super-user-token-')) {
+            if (!session?.token) {
                 throw new Error('Entre com uma conta autorizada para criar eventos.');
             }
 
@@ -140,12 +175,14 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
                 description: payload.description,
                 startsAt: payload.starts_at,
                 endsAt: payload.ends_at,
+                image: form.imageUrl || defaultImage,
+                templateId: form.themeId,
             };
 
             let response: Response;
 
             try {
-                response = await fetch(apiV1Url('/go/events'), {
+                response = await fetch(apiV1Url('/invitely/events'), {
                     method: 'POST',
                     headers: authHeaders(session.token),
                     body: JSON.stringify(payload),
@@ -170,6 +207,12 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
                 const errorMessage =
                     validationMessages ?? errorData.message ?? errorData.error ?? 'Erro ao criar evento.';
 
+                if (errorMessage.toLowerCase().includes('invalid input syntax for type uuid')) {
+                    throw new Error(
+                        'A API recusou sua sessao por identificador invalido. Saia e entre novamente como organizador.',
+                    );
+                }
+
                 throw new Error(errorMessage);
             }
 
@@ -186,12 +229,14 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
                 endsAt: apiEvent?.ends_at ?? createdEvent.endsAt,
                 place: apiEvent?.location ?? createdEvent.place,
                 status: apiEvent?.status === 'published' ? 'Publicado' : 'Salvo',
+                image: apiEvent?.hero_image_url ?? apiEvent?.image_url ?? createdEvent.image,
+                templateId: apiEvent?.theme_id ?? createdEvent.templateId,
             };
 
             return { id: eventFromApi.id, event: eventFromApi };
         },
         onSuccess: (result) => {
-            setSuccess('Evento criado com sucesso.');
+            setSuccess(`Evento criado com sucesso. Link publico: ${siteUrl(`/events/${result.event.slug}`)}`);
             onCreated?.(result.event);
 
             if (!onCreated) {
@@ -206,6 +251,36 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
     function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
         event.preventDefault();
         createEvent.mutate();
+    }
+
+    function chooseTheme(themeId: string) {
+        const theme = eventThemes.find((option) => option.id === themeId);
+
+        if (!theme) {
+            return;
+        }
+
+        setForm((current) => ({ ...current, themeId: theme.id, imageUrl: theme.image }));
+    }
+
+    function loadCustomImage(file: File | null) {
+        if (!file) {
+            return;
+        }
+
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+            setError('Use uma imagem JPG, PNG ou WebP para o fundo do convite.');
+
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result === 'string') {
+                setForm((current) => ({ ...current, themeId: 'custom', imageUrl: reader.result as string }));
+            }
+        };
+        reader.readAsDataURL(file);
     }
 
     return (
@@ -359,6 +434,57 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
                         </div>
                     </FormSection>
 
+                    <FormSection title="Tema e fundo do convite">
+                        <div className="grid gap-3 sm:grid-cols-3">
+                            {eventThemes.map((theme) => (
+                                <button
+                                    key={theme.id}
+                                    type="button"
+                                    onClick={() => {
+                                        chooseTheme(theme.id);
+                                    }}
+                                    className={
+                                        form.themeId === theme.id
+                                            ? 'overflow-hidden rounded-2xl border border-[#22D3EE] bg-[#0EA5E9]/15 text-left'
+                                            : 'overflow-hidden rounded-2xl border border-[#263247] bg-[#0B0F1A] text-left transition hover:border-[#22D3EE]/60'
+                                    }
+                                >
+                                    <img src={theme.image} alt="" className="h-24 w-full object-cover" />
+                                    <span className="block px-3 py-2 text-sm font-bold">{theme.name}</span>
+                                </button>
+                            ))}
+                        </div>
+                        <Field label="URL de imagem de fundo">
+                            <input
+                                type="url"
+                                placeholder="https://cdn.seusite.com/convite.jpg"
+                                value={form.imageUrl.startsWith('data:') ? '' : form.imageUrl}
+                                onChange={(event) => {
+                                    setForm((current) => ({
+                                        ...current,
+                                        themeId: 'custom',
+                                        imageUrl: event.target.value,
+                                    }));
+                                }}
+                                className="field-control"
+                                disabled={createEvent.isPending}
+                            />
+                        </Field>
+                        <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-[#22D3EE]/50 bg-[#0EA5E9]/10 px-4 py-4 text-sm font-bold text-[#BAE6FD] transition hover:border-[#22D3EE]">
+                            <ImagePlus className="h-4 w-4" />
+                            Escolher JPG, PNG ou WebP do computador
+                            <input
+                                type="file"
+                                accept="image/png,image/jpeg,image/webp"
+                                className="sr-only"
+                                onChange={(event) => {
+                                    loadCustomImage(event.target.files?.[0] ?? null);
+                                }}
+                                disabled={createEvent.isPending}
+                            />
+                        </label>
+                    </FormSection>
+
                     <div className="flex flex-col gap-3 border-t border-[#263247] pt-6 sm:flex-row">
                         {onCancel && (
                             <button
@@ -402,6 +528,11 @@ export function CreateEventForm({ onCancel, onCreated }: CreateEventFormProps) {
                         <h3 className="mt-4 text-xl font-bold">{preview.title}</h3>
                         <p className="mt-2 text-sm text-[#94A3B8]">{preview.date}</p>
                         <p className="mt-1 text-sm text-[#CBD5E1]">{preview.place}</p>
+                        {inviteUrl ? (
+                            <p className="mt-3 break-all rounded-xl border border-[#263247] bg-[#0B0F1A] p-3 text-xs text-[#BAE6FD]">
+                                {inviteUrl}
+                            </p>
+                        ) : null}
                     </div>
                 </div>
             </aside>

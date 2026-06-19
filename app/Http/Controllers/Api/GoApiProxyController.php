@@ -3,16 +3,18 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\InvitelyService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\App;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
 
 final class GoApiProxyController extends Controller
 {
+    public function __construct(private readonly InvitelyService $invitely) {}
+
     /**
      * @var array<string, array<int, string>>
      */
@@ -22,6 +24,8 @@ final class GoApiProxyController extends Controller
             'auth/me',
             'events',
             'events/*',
+            'events/*/budget',
+            'events/*/gifts',
             'guests',
             'dashboard',
             'analytics/events/*',
@@ -37,6 +41,11 @@ final class GoApiProxyController extends Controller
             'rsvp',
         ],
         'PUT' => [
+            'events/*',
+            'budget/*',
+            'gifts/*',
+        ],
+        'PATCH' => [
             'events/*',
             'budget/*',
             'gifts/*',
@@ -57,29 +66,22 @@ final class GoApiProxyController extends Controller
             return response()->json(['error' => 'proxy_route_not_allowed'], 404);
         }
 
-        $baseUrl = rtrim((string) config('services.go_api.url'), '/');
-
-        if ($baseUrl === '') {
-            return response()->json(['error' => 'go_api_url_not_configured'], 500);
-        }
-
-        if (! $this->isValidBaseUrl($baseUrl)) {
-            return response()->json(['error' => 'go_api_url_invalid'], 500);
+        if (! $this->invitely->isConfigured()) {
+            return response()->json(['error' => 'invitely_api_url_not_configured'], 500);
         }
 
         try {
-            $options = ['query' => $request->query()];
-
-            if (in_array($method, ['POST', 'PUT'], true)) {
-                $options['json'] = $request->isJson() ? $request->json()->all() : $request->all();
-            }
-
-            $upstream = Http::timeout((int) config('services.go_api.timeout', 10))
-                ->acceptJson()
-                ->withHeaders($this->forwardHeaders($request))
-                ->send($method, "{$baseUrl}/{$normalizedPath}", $options);
+            $upstream = $this->invitely->send(
+                $method,
+                $normalizedPath,
+                $request->query(),
+                $request->isJson() ? $request->json()->all() : $request->all(),
+                $request->header('Authorization'),
+            );
         } catch (ConnectionException) {
-            return response()->json(['error' => 'go_api_unavailable'], 502);
+            return response()->json(['error' => 'invitely_api_unavailable'], 502);
+        } catch (InvalidArgumentException) {
+            return response()->json(['error' => 'invitely_api_url_invalid'], 500);
         }
 
         return response($upstream->body(), $upstream->status())
@@ -90,46 +92,5 @@ final class GoApiProxyController extends Controller
     {
         return collect(self::ALLOWED_ROUTES[$method] ?? [])
             ->contains(fn (string $pattern): bool => Str::is($pattern, $path));
-    }
-
-    private function isValidBaseUrl(string $baseUrl): bool
-    {
-        $host = parse_url($baseUrl, PHP_URL_HOST);
-        $scheme = parse_url($baseUrl, PHP_URL_SCHEME);
-
-        if (! is_string($host) || $host === '' || ! is_string($scheme)) {
-            return false;
-        }
-
-        if (! in_array($scheme, ['http', 'https'], true)) {
-            return false;
-        }
-
-        if (App::isProduction()) {
-            return $scheme === 'https'
-                && ! in_array($host, ['localhost', '127.0.0.1', '0.0.0.0'], true);
-        }
-
-        return true;
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function forwardHeaders(Request $request): array
-    {
-        $headers = [];
-        $authorization = $request->header('Authorization');
-        $internalKey = config('services.go_api.internal_key');
-
-        if (is_string($authorization) && $authorization !== '') {
-            $headers['Authorization'] = $authorization;
-        }
-
-        if (is_string($internalKey) && $internalKey !== '') {
-            $headers['X-Internal-Api-Key'] = $internalKey;
-        }
-
-        return $headers;
     }
 }

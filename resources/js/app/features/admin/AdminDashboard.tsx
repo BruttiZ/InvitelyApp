@@ -42,6 +42,7 @@ import {
     storeSession,
 } from '../../auth/session';
 import { apiV1Url, authHeaders } from '../../../lib/api';
+import { siteUrl } from '../../../lib/site';
 import { CreateEventForm, CreatedEventSummary } from './CreateEventForm';
 
 type DashboardView =
@@ -87,17 +88,6 @@ type GuestRow = {
     name: string;
     email: string;
     status: string;
-};
-
-type StoredPublicRsvp = {
-    eventId: string;
-    eventSlug: string;
-    name: string;
-    email: string;
-    status: 'accepted' | 'declined';
-    companions: number;
-    message: string;
-    respondedAt: string;
 };
 
 type GuestResource = {
@@ -174,17 +164,23 @@ type InviteContext = {
 
 type AdminEventResource = {
     id: string | number;
-    title: string;
+    title?: string;
+    name?: string;
     description?: string;
     slug?: string;
     status?: string;
     starts_at: string;
     ends_at?: string;
     location?: string;
+    hero_image_url?: string;
+    image_url?: string;
+    theme_id?: string;
 };
 
 type PaginatedEventResponse = {
-    data?: AdminEventResource[];
+    data?: AdminEventResource[] | { events?: AdminEventResource[]; items?: AdminEventResource[] };
+    events?: AdminEventResource[];
+    items?: AdminEventResource[];
 };
 
 type GuestListResponse = {
@@ -262,47 +258,15 @@ const profileCopy: Record<
     },
 };
 
-const initialEventCards: CreatedEventSummary[] = [
-    {
-        id: 'demo-invitely-launch-night',
-        slug: 'invitely-launch-night',
-        title: 'Invitely Launch Night',
-        date: '23 jul 2026 - 19:00',
-        place: 'Atelier Vista',
-        status: 'Publicado',
-        confirmed: 180,
-        rsvp: 71,
-        image: 'https://images.unsplash.com/photo-1519167758481-83f550bb49b3?auto=format&fit=crop&w=900&q=80',
-    },
-    {
-        id: 'demo-founders-dinner',
-        slug: 'founders-dinner',
-        title: 'Founders Dinner',
-        date: '05 ago 2026 - 20:00',
-        place: 'Rascunho',
-        status: 'Rascunho',
-        confirmed: 64,
-        rsvp: 42,
-        image: 'https://images.unsplash.com/photo-1528605248644-14dd04022da1?auto=format&fit=crop&w=900&q=80',
-    },
-    {
-        id: 'demo-aurora-summit',
-        slug: 'aurora-summit',
-        title: 'Aurora Summit',
-        date: '12 set 2026 - 08:00',
-        place: 'Centro de Convencoes',
-        status: 'Encerrado',
-        confirmed: 920,
-        rsvp: 84,
-        image: 'https://images.unsplash.com/photo-1505373877841-8d25f7d46678?auto=format&fit=crop&w=900&q=80',
-    },
-];
+const initialEventCards: CreatedEventSummary[] = [];
 
 function mapEventResource(event: AdminEventResource): CreatedEventSummary {
+    const title = event.title ?? event.name ?? 'Evento sem nome';
+
     return {
         id: String(event.id),
         slug: event.slug ?? String(event.id),
-        title: event.title,
+        title,
         description: event.description,
         date: formatEventDate(event.starts_at),
         startsAt: event.starts_at,
@@ -311,8 +275,36 @@ function mapEventResource(event: AdminEventResource): CreatedEventSummary {
         status: event.status === 'published' ? 'Publicado' : 'Salvo',
         confirmed: 0,
         rsvp: 0,
-        image: 'https://images.unsplash.com/photo-1519167758481-83f550bb49b3?auto=format&fit=crop&w=900&q=80',
+        image:
+            event.hero_image_url ??
+            event.image_url ??
+            'https://images.unsplash.com/photo-1519167758481-83f550bb49b3?auto=format&fit=crop&w=900&q=80',
+        templateId: event.theme_id,
     };
+}
+
+function extractEventResources(payload: PaginatedEventResponse): AdminEventResource[] {
+    if (Array.isArray(payload.data)) {
+        return payload.data;
+    }
+
+    if (payload.data && !Array.isArray(payload.data) && Array.isArray(payload.data.events)) {
+        return payload.data.events;
+    }
+
+    if (payload.data && !Array.isArray(payload.data) && Array.isArray(payload.data.items)) {
+        return payload.data.items;
+    }
+
+    if (Array.isArray(payload.events)) {
+        return payload.events;
+    }
+
+    if (Array.isArray(payload.items)) {
+        return payload.items;
+    }
+
+    return [];
 }
 
 function mapGuestResource(guest: GuestResource): GuestRow {
@@ -349,8 +341,21 @@ function mapGiftResource(item: GiftResource): GiftWish {
 
 async function responseError(response: Response, fallback: string): Promise<Error> {
     const payload = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
+    const message = payload.error ?? payload.message ?? fallback;
 
-    return new Error(payload.error ?? payload.message ?? fallback);
+    if (response.status === 401) {
+        return new Error('Sessao expirada ou invalida na API. Saia e entre novamente como organizador.');
+    }
+
+    if (message.toLowerCase().includes('invalid input syntax for type uuid')) {
+        return new Error('Sessao da API com identificador invalido. Saia e entre novamente como organizador.');
+    }
+
+    if (response.status >= 500) {
+        return new Error(`${fallback} A API retornou erro interno; tente sair e entrar novamente.`);
+    }
+
+    return new Error(message);
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -430,51 +435,9 @@ const tenants = [
     { name: 'Mira Eventos', plan: 'business', events: '104', status: 'Atencao' },
 ];
 
-const defaultBudgetItems: BudgetItem[] = [
-    {
-        id: 'buffet',
-        category: 'Buffet',
-        description: 'Comidas, bebidas e equipe de servico',
-        amount: 8500,
-        paid: false,
-    },
-    { id: 'aluguel', category: 'Aluguel', description: 'Espaco do evento', amount: 4200, paid: false },
-    {
-        id: 'decoracao',
-        category: 'Decoracao',
-        description: 'Flores, mobiliario e ambientacao',
-        amount: 2800,
-        paid: false,
-    },
-    {
-        id: 'som-luz',
-        category: 'Som e luz',
-        description: 'DJ, iluminacao e estrutura tecnica',
-        amount: 2300,
-        paid: false,
-    },
-];
+const defaultBudgetItems: BudgetItem[] = [];
 
-const defaultGiftWishes: GiftWish[] = [
-    {
-        id: 'pix',
-        name: 'Cota Pix dos anfitrioes',
-        description: 'Ajuda para custos do evento',
-        price: 5000,
-        url: '',
-        reserved: false,
-        reservedBy: '',
-    },
-    {
-        id: 'vinhos',
-        name: 'Adega inicial',
-        description: 'Selecao de vinhos para casa',
-        price: 1200,
-        url: '',
-        reserved: false,
-        reservedBy: '',
-    },
-];
+const defaultGiftWishes: GiftWish[] = [];
 
 const defaultAccountSettings: AccountSettings = {
     organization: 'Invitely',
@@ -533,22 +496,6 @@ function readStoredObject<T>(key: string, fallback: T): T {
 
 function writeStoredObject(key: string, value: unknown): void {
     window.localStorage.setItem(key, JSON.stringify(value));
-}
-
-function readStoredPublicRsvps(): StoredPublicRsvp[] {
-    const raw = window.localStorage.getItem('invitely.publicRsvps');
-
-    if (!raw) {
-        return [];
-    }
-
-    try {
-        const parsed = JSON.parse(raw) as StoredPublicRsvp[];
-
-        return Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return [];
-    }
 }
 
 function userSettingsKey(userId: string | number): string {
@@ -656,9 +603,7 @@ function uniqueGuestsByEmail(guests: GuestRow[]): GuestRow[] {
 }
 
 function countAcceptedPublicRsvps(event: CreatedEventSummary): number {
-    return readStoredPublicRsvps().filter(
-        (rsvp) => (rsvp.eventId === event.id || rsvp.eventSlug === event.slug) && rsvp.status === 'accepted',
-    ).length;
+    return event.confirmed;
 }
 
 function navigationFor(user: AuthUser): NavigationItem[] {
@@ -767,12 +712,8 @@ export function AdminDashboard() {
     const [deletedEventIds, setDeletedEventIds] = useState<string[]>(() =>
         readStoredArray('invitely.deletedEventIds', []),
     );
-    const [budgetItems, setBudgetItems] = useState<BudgetItem[]>(() =>
-        readStoredArray('invitely.budgetItems', defaultBudgetItems),
-    );
-    const [giftWishes, setGiftWishes] = useState<GiftWish[]>(() =>
-        readStoredArray('invitely.giftWishes', defaultGiftWishes),
-    );
+    const [budgetItems, setBudgetItems] = useState<BudgetItem[]>(defaultBudgetItems);
+    const [giftWishes, setGiftWishes] = useState<GiftWish[]>(defaultGiftWishes);
     const [reminderEventId, setReminderEventId] = useState('');
     const [activeTemplate, setActiveTemplate] = useState<TemplateOption>(defaultTemplate);
     const [toast, setToast] = useState('Dashboard carregado. Explore os modulos do produto.');
@@ -793,12 +734,13 @@ export function AdminDashboard() {
     const eventsQuery = useQuery({
         queryKey: ['admin-events', session?.user.id],
         enabled: shouldLoadAdminEvents,
+        retry: false,
         queryFn: async () => {
             if (!session?.token) {
                 throw new Error('Sessao expirada. Faca login novamente.');
             }
 
-            const response = await fetch(apiV1Url('/go/events'), {
+            const response = await fetch(apiV1Url('/invitely/events'), {
                 headers: authHeaders(session.token),
             });
             const payload = (await response.json().catch(() => ({}))) as PaginatedEventResponse & {
@@ -806,10 +748,10 @@ export function AdminDashboard() {
             };
 
             if (!response.ok) {
-                throw new Error(payload.message ?? 'Nao foi possivel carregar eventos salvos.');
+                throw await responseError(response, 'Nao foi possivel carregar eventos salvos.');
             }
 
-            return (payload.data ?? []).map(mapEventResource);
+            return extractEventResources(payload).map(mapEventResource);
         },
     });
 
@@ -821,13 +763,15 @@ export function AdminDashboard() {
             .map((event) => overrides.get(event.id) ?? event);
     }, [createdEvents, deletedEventIds, eventOverrides, eventsQuery.data]);
     const planningEventId = events[0]?.id;
+    const canSyncPlanningEvent = Boolean(planningEventId) && !planningEventId?.startsWith('local-');
     const storedPublicPreviewEvent = readStoredObject<CreatedEventSummary | null>('invitely.publicPreviewEvent', null);
     const publicPreviewEvent = events[0] ?? storedPublicPreviewEvent;
-    const publicInvitePath = `/events/${publicPreviewEvent?.slug ?? 'invitely-launch-night'}`;
+    const publicInvitePath = publicPreviewEvent ? `/events/${publicPreviewEvent.slug}?preview=1` : destinations.owner;
+    const publicInviteUrl = publicPreviewEvent ? siteUrl(`/events/${publicPreviewEvent.slug}`) : '';
     const fallbackInviteEvent: CreatedEventSummary = initialEventCards[0] ?? {
         id: 'fallback-invite',
-        slug: 'invitely-launch-night',
-        title: 'Convite Invitely',
+        slug: '',
+        title: 'Nenhum convite criado',
         date: 'Data a definir',
         place: 'Local a definir',
         status: 'Rascunho',
@@ -842,13 +786,14 @@ export function AdminDashboard() {
     const activeReminderEventId = reminderEventId || planningEventId;
     const planningGuestsQuery = useQuery({
         queryKey: ['event-guests', planningEventId],
-        enabled: user?.role === 'owner' && Boolean(session?.token) && Boolean(planningEventId),
+        enabled: user?.role === 'owner' && Boolean(session?.token) && canSyncPlanningEvent,
+        retry: false,
         queryFn: async () => {
             if (!session?.token || !planningEventId) {
                 throw new Error('Selecione um evento para carregar convidados.');
             }
 
-            const response = await fetch(apiV1Url(`/go/guests?event_id=${encodeURIComponent(planningEventId)}`), {
+            const response = await fetch(apiV1Url(`/invitely/guests?event_id=${encodeURIComponent(planningEventId)}`), {
                 headers: authHeaders(session.token),
             });
 
@@ -866,16 +811,22 @@ export function AdminDashboard() {
         enabled:
             user?.role === 'owner' &&
             Boolean(session?.token) &&
+            canSyncPlanningEvent &&
             Boolean(activeReminderEventId) &&
+            !(activeReminderEventId ?? '').startsWith('local-') &&
             activeReminderEventId !== planningEventId,
+        retry: false,
         queryFn: async () => {
             if (!session?.token || !activeReminderEventId) {
                 throw new Error('Selecione um evento para carregar convidados.');
             }
 
-            const response = await fetch(apiV1Url(`/go/guests?event_id=${encodeURIComponent(activeReminderEventId)}`), {
-                headers: authHeaders(session.token),
-            });
+            const response = await fetch(
+                apiV1Url(`/invitely/guests?event_id=${encodeURIComponent(activeReminderEventId)}`),
+                {
+                    headers: authHeaders(session.token),
+                },
+            );
 
             if (!response.ok) {
                 throw await responseError(response, 'Nao foi possivel carregar convidados.');
@@ -888,16 +839,7 @@ export function AdminDashboard() {
     });
     const reminderGuests =
         activeReminderEventId === planningEventId ? (planningGuestsQuery.data ?? []) : (reminderGuestsQuery.data ?? []);
-    const publicRsvpGuests = readStoredPublicRsvps()
-        .filter((rsvp) => events.some((event) => event.id === rsvp.eventId || event.slug === rsvp.eventSlug))
-        .map(
-            (rsvp): GuestRow => ({
-                name: rsvp.name || rsvp.email,
-                email: rsvp.email,
-                status: rsvp.status === 'accepted' ? 'Confirmado' : 'Recusado',
-            }),
-        );
-    const planningGuests = uniqueGuestsByEmail([...(planningGuestsQuery.data ?? []), ...publicRsvpGuests]);
+    const planningGuests = uniqueGuestsByEmail(planningGuestsQuery.data ?? []);
     const isLoadingReminderGuests =
         activeReminderEventId === planningEventId ? planningGuestsQuery.isLoading : reminderGuestsQuery.isLoading;
     const reminderGuestsError =
@@ -906,13 +848,14 @@ export function AdminDashboard() {
             : reminderGuestsQuery.error?.message;
     const budgetQuery = useQuery({
         queryKey: ['event-budget', planningEventId],
-        enabled: user?.role === 'owner' && Boolean(session?.token) && Boolean(planningEventId),
+        enabled: user?.role === 'owner' && Boolean(session?.token) && canSyncPlanningEvent,
+        retry: false,
         queryFn: async () => {
             if (!session?.token || !planningEventId) {
                 throw new Error('Selecione um evento para carregar o orcamento.');
             }
 
-            const response = await fetch(apiV1Url(`/go/events/${planningEventId}/budget`), {
+            const response = await fetch(apiV1Url(`/invitely/events/${planningEventId}/budget`), {
                 headers: authHeaders(session.token),
             });
 
@@ -927,13 +870,14 @@ export function AdminDashboard() {
     });
     const giftsQuery = useQuery({
         queryKey: ['event-gifts', planningEventId],
-        enabled: user?.role === 'owner' && Boolean(session?.token) && Boolean(planningEventId),
+        enabled: user?.role === 'owner' && Boolean(session?.token) && canSyncPlanningEvent,
+        retry: false,
         queryFn: async () => {
             if (!session?.token || !planningEventId) {
                 throw new Error('Selecione um evento para carregar os presentes.');
             }
 
-            const response = await fetch(apiV1Url(`/go/events/${planningEventId}/gifts`), {
+            const response = await fetch(apiV1Url(`/invitely/events/${planningEventId}/gifts`), {
                 headers: authHeaders(session.token),
             });
 
@@ -1093,6 +1037,9 @@ export function AdminDashboard() {
                             onClick={() => {
                                 if (publicPreviewEvent) {
                                     writeStoredObject('invitely.publicPreviewEvent', publicPreviewEvent);
+                                    notify(`Link publico de producao: ${publicInviteUrl}`);
+                                } else {
+                                    notify('Crie um evento antes de abrir o convite publico.');
                                 }
                             }}
                             className="flex h-11 items-center gap-3 rounded-xl px-3 text-sm text-[#CBD5E1] transition hover:bg-[#121827] hover:text-white"
@@ -1229,7 +1176,7 @@ export function AdminDashboard() {
                                     throw new Error('Sessao expirada. Faca login novamente.');
                                 }
 
-                                const response = await fetch(apiV1Url(`/go/events/${event.id}`), {
+                                const response = await fetch(apiV1Url(`/invitely/events/${event.id}`), {
                                     method: 'PUT',
                                     headers: authHeaders(session.token),
                                     body: JSON.stringify({
@@ -1283,7 +1230,7 @@ export function AdminDashboard() {
                                     throw new Error('Sessao expirada. Faca login novamente.');
                                 }
 
-                                const response = await fetch(apiV1Url(`/go/events/${eventId}`), {
+                                const response = await fetch(apiV1Url(`/invitely/events/${eventId}`), {
                                     method: 'DELETE',
                                     headers: authHeaders(session.token),
                                 });
@@ -1318,7 +1265,7 @@ export function AdminDashboard() {
                                     throw new Error('Crie ou carregue um evento antes de adicionar custos.');
                                 }
 
-                                const response = await fetch(apiV1Url(`/go/events/${planningEventId}/budget`), {
+                                const response = await fetch(apiV1Url(`/invitely/events/${planningEventId}/budget`), {
                                     method: 'POST',
                                     headers: authHeaders(session.token),
                                     body: JSON.stringify({
@@ -1344,7 +1291,7 @@ export function AdminDashboard() {
                                     throw new Error('Sessao expirada. Faca login novamente.');
                                 }
 
-                                const response = await fetch(apiV1Url(`/go/budget/${itemId}`), {
+                                const response = await fetch(apiV1Url(`/invitely/budget/${itemId}`), {
                                     method: 'DELETE',
                                     headers: authHeaders(session.token),
                                 });
@@ -1362,7 +1309,7 @@ export function AdminDashboard() {
                                     throw new Error('Crie ou carregue um evento antes de adicionar presentes.');
                                 }
 
-                                const response = await fetch(apiV1Url(`/go/events/${planningEventId}/gifts`), {
+                                const response = await fetch(apiV1Url(`/invitely/events/${planningEventId}/gifts`), {
                                     method: 'POST',
                                     headers: authHeaders(session.token),
                                     body: JSON.stringify({
@@ -1390,7 +1337,7 @@ export function AdminDashboard() {
                                     throw new Error('Sessao expirada. Faca login novamente.');
                                 }
 
-                                const response = await fetch(apiV1Url(`/go/gifts/${itemId}`), {
+                                const response = await fetch(apiV1Url(`/invitely/gifts/${itemId}`), {
                                     method: 'DELETE',
                                     headers: authHeaders(session.token),
                                 });
@@ -1760,7 +1707,7 @@ function EventsView({
         );
     }
 
-    if (error) {
+    if (error && events.length === 0) {
         return (
             <Panel title="Eventos" className="mt-6">
                 <p className="text-sm text-[#FCA5A5]">{error}</p>
@@ -1780,6 +1727,11 @@ function EventsView({
 
     return (
         <section className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {error ? (
+                <div className="rounded-2xl border border-[#F59E0B]/30 bg-[#F59E0B]/10 p-4 text-sm leading-6 text-[#FCD34D] md:col-span-2 xl:col-span-3">
+                    {error} Mostrando os eventos salvos neste navegador enquanto a API Go nao responde.
+                </div>
+            ) : null}
             {events.map((event) => (
                 <motion.article
                     key={event.id}
@@ -1886,7 +1838,7 @@ function InviteLinkPanel({
     notify: (message: string) => void;
     className?: string;
 }) {
-    const inviteUrl = `${window.location.origin}/events/${event.slug}`;
+    const inviteUrl = siteUrl(`/events/${event.slug}`);
 
     return (
         <div className={`rounded-2xl border border-[#263247] bg-[#0B0F1A] p-3 ${className}`}>
@@ -1894,7 +1846,7 @@ function InviteLinkPanel({
             <p className="mt-2 truncate text-sm text-[#CBD5E1]">{inviteUrl}</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
                 <Link
-                    to={`/events/${event.slug}`}
+                    to={`/events/${event.slug}?preview=1`}
                     onClick={() => {
                         writeStoredObject('invitely.publicPreviewEvent', event);
                     }}
@@ -2461,7 +2413,7 @@ function ReminderPanel({
         setSendError(null);
 
         try {
-            const response = await fetch(apiV1Url(`/go/events/${selectedEventId}/reminders`), {
+            const response = await fetch(apiV1Url(`/invitely/events/${selectedEventId}/reminders`), {
                 method: 'POST',
                 headers: authHeaders(token),
                 body: JSON.stringify({
@@ -2911,8 +2863,6 @@ function SettingsView({
     const [savedAt, setSavedAt] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
 
-    const isLocalSession = token.startsWith('demo-') || token.startsWith('super-user-token-');
-
     async function saveSettings(): Promise<void> {
         setError(null);
 
@@ -2940,20 +2890,18 @@ function SettingsView({
                 privacy_preferences: draft.privacy_preferences,
             };
 
-            if (!isLocalSession) {
-                const response = await fetch(apiV1Url('/admin/me'), {
-                    method: 'PATCH',
-                    headers: authHeaders(token),
-                    body: JSON.stringify(updatedUser),
-                });
+            const response = await fetch(apiV1Url('/admin/me'), {
+                method: 'PATCH',
+                headers: authHeaders(token),
+                body: JSON.stringify(updatedUser),
+            });
 
-                if (!response.ok) {
-                    throw await responseError(response, 'Nao foi possivel salvar as configuracoes.');
-                }
-
-                const payload = (await response.json()) as { data?: { user?: AuthUser } };
-                updatedUser = payload.data?.user ?? updatedUser;
+            if (!response.ok) {
+                throw await responseError(response, 'Nao foi possivel salvar as configuracoes.');
             }
+
+            const payload = (await response.json()) as { data?: { user?: AuthUser } };
+            updatedUser = payload.data?.user ?? updatedUser;
 
             writeStoredObject(storageKey, {
                 name: updatedUser.name,
@@ -3022,12 +2970,6 @@ function SettingsView({
                         {error}
                     </p>
                 ) : null}
-                {isLocalSession ? (
-                    <p className="mb-4 rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/10 p-3 text-sm text-[#FDE68A]">
-                        Sessao local de demonstracao: os ajustes serao salvos neste navegador.
-                    </p>
-                ) : null}
-
                 {activeTab === 'profile' ? (
                     <div className="grid gap-4 md:grid-cols-2">
                         <SettingsField label="Nome publico">

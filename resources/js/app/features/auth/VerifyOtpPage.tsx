@@ -131,10 +131,10 @@ export function VerifyOtpPage({ email: initialEmail }: VerifyOtpPageProps) {
                             Invitely
                         </Link>
                         <Link
-                            to="/events/invitely-launch-night"
+                            to="/"
                             className="hidden shrink-0 rounded-xl border border-[#263247] bg-[#121827]/80 px-3 py-2 text-xs font-semibold transition hover:scale-[1.03] min-[420px]:inline-flex sm:px-4 sm:text-sm"
                         >
-                            Ver convite
+                            Inicio
                         </Link>
                     </header>
 
