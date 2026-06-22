@@ -41,9 +41,9 @@ return [
     ],
 
     'invitely' => [
-        'base_url' => env('INVITELY_API_BASE_URL'),
-        'api_key' => env('INVITELY_API_KEY'),
-        'timeout' => (int) env('INVITELY_API_TIMEOUT', 30),
+        'base_url' => env('INVITELY_API_BASE_URL', env('GO_API_URL')),
+        'api_key' => env('INVITELY_API_KEY', env('GO_API_INTERNAL_KEY')),
+        'timeout' => (int) env('INVITELY_API_TIMEOUT', env('GO_API_TIMEOUT', 30)),
     ],
 
 ];
