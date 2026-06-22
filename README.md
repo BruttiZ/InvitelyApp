@@ -18,6 +18,8 @@ Depois de subir o Docker, abra:
 - Convite de exemplo: `http://localhost:8082/events/invitely-launch-night`
 - Login / cadastro: `http://localhost:8082/login`
 - Dashboard interativo: `http://localhost:8082/admin`
+- Healthcheck Laravel: `http://localhost:8082/up`
+- Healthcheck API Go: `http://localhost:8080/health`
 
 ## Identidade visual
 
@@ -42,7 +44,7 @@ O redesign atual usa uma estética dark premium inspirada em Linear, Stripe, Ver
 - Eventos com link copiável de convite, templates/fundos aplicáveis e visual público sincronizado com o card do painel.
 - Telas operacionais de eventos, convidados, templates, check-in, relatórios, integrações, configurações e plataforma.
 - API Laravel versionada com Sanctum, Actions, DTOs, repositories, Form Requests, policies e resources.
-- Proxy Laravel para API Go em `/api/v1/go/*`, com allowlist de rotas e repasse de `Authorization`/`X-Internal-Api-Key`.
+- Proxy Laravel para API Go em `/api/v1/invitely/*`, com allowlist de rotas e repasse de `Authorization` e `x-api-key`.
 - Stack Docker com Nginx, PHP 8.4-FPM, PostgreSQL, Redis, Mailpit, MinIO e Node para build frontend.
 
 ## Stack
@@ -112,7 +114,7 @@ Para evitar duplicidade, o RSVP por link público usa `event_id + email` como id
 O Laravel continua sendo a API principal do repositório, mas o projeto já está preparado para conversar com uma API Go externa por meio do proxy:
 
 ```text
-/api/v1/go/{rota-da-api-go}
+/api/v1/invitely/{rota-da-api-go}
 ```
 
 Configure no `.env`:
@@ -123,7 +125,7 @@ GO_API_INTERNAL_KEY=
 GO_API_TIMEOUT=30
 ```
 
-O navegador não deve chamar a API Go diretamente. O frontend chama o Laravel em `/api/v1/go/*`; o Laravel valida a rota em `GoApiProxyController`, repassa `Authorization` quando existir, adiciona `X-Internal-Api-Key` quando configurado e encaminha a requisição para `GO_API_URL`.
+O navegador nao deve chamar a API Go diretamente. O frontend chama o Laravel em `/api/v1/invitely/*`; o Laravel valida a rota em `GoApiProxyController`, repassa `Authorization` quando existir, adiciona `x-api-key` quando configurado e encaminha a requisicao para `GO_API_URL`.
 
 Rotas Go atualmente liberadas no proxy:
 
@@ -140,6 +142,22 @@ Rotas Go atualmente liberadas no proxy:
 - `POST /rsvp`
 
 Em produção, `GO_API_URL` precisa ser HTTPS e não pode apontar para `localhost`.
+
+## Healthchecks
+
+Use estes endpoints para validar deploy, monitoramento e integracao entre servicos:
+
+```text
+Laravel app: /up
+API Go: /health
+```
+
+Em producao:
+
+```text
+https://seu-laravel.onrender.com/up
+https://sua-api-go.onrender.com/health
+```
 
 ## Comandos úteis
 
@@ -158,6 +176,14 @@ npm run build:vercel
 ```
 
 ## Arquitetura
+
+Fluxo principal em producao:
+
+```text
+React -> Laravel BFF/Proxy -> API Go -> PostgreSQL/Supabase
+```
+
+O React entrega a experiencia do organizador e do convidado. O Laravel serve o app, concentra as rotas publicas do produto e atua como BFF/proxy para proteger a API Go do navegador. A API Go executa os fluxos operacionais de eventos, convidados, RSVP, orcamento, presentes, analytics e lembretes, usando PostgreSQL para os dados do produto e Supabase Auth para autenticacao.
 
 O backend é organizado por fronteiras de domínio e casos de uso:
 

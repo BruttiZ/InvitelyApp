@@ -186,6 +186,9 @@ Antes de fazer commit final:
 - [ ] Redeploy funciona sem erros
 - [ ] Super user funciona em produção
 - [ ] Super user funciona em localhost
+- [ ] Healthcheck Laravel responde em `/up`
+- [ ] Healthcheck API Go responde em `/health`
+- [ ] Fluxo `React -> Laravel BFF/Proxy -> API Go -> PostgreSQL/Supabase` validado em produção
 
 ---
 

@@ -352,7 +352,7 @@ async function responseError(response: Response, fallback: string): Promise<Erro
     }
 
     if (response.status >= 500) {
-        return new Error(`${fallback} A API retornou erro interno; tente sair e entrar novamente.`);
+        return new Error('Nao foi possivel carregar seus eventos agora. Tente atualizar a pagina ou entre novamente.');
     }
 
     return new Error(message);
@@ -1163,6 +1163,12 @@ export function AdminDashboard() {
                             user={user}
                             token={session.token}
                             inviteContext={inviteContext}
+                            onCreateEvent={() => {
+                                setIsCreatingEvent(true);
+                                setIsSendingReminder(false);
+                                setView('events');
+                                notify('Criacao de evento iniciada.');
+                            }}
                             onSessionUserChange={(updatedUser) => {
                                 const nextSession = {
                                     ...session,
@@ -1380,6 +1386,7 @@ function DashboardContent({
     user,
     token,
     inviteContext,
+    onCreateEvent,
     onSessionUserChange,
     onUpdateEvent,
     onDeleteEvent,
@@ -1409,6 +1416,7 @@ function DashboardContent({
     user: AuthUser;
     token: string;
     inviteContext: InviteContext;
+    onCreateEvent: () => void;
     onSessionUserChange: (user: AuthUser) => void;
     onUpdateEvent: (event: CreatedEventSummary) => Promise<void>;
     onDeleteEvent: (eventId: string) => Promise<void>;
@@ -1431,6 +1439,7 @@ function DashboardContent({
                 events={events.length > 0 ? events : initialEventCards}
                 isLoading={isLoadingEvents}
                 error={eventsError}
+                onCreateEvent={onCreateEvent}
                 onUpdateEvent={onUpdateEvent}
                 onDeleteEvent={onDeleteEvent}
             />
@@ -1683,6 +1692,7 @@ function EventsView({
     events,
     isLoading,
     error,
+    onCreateEvent,
     onUpdateEvent,
     onDeleteEvent,
 }: {
@@ -1691,6 +1701,7 @@ function EventsView({
     events: CreatedEventSummary[];
     isLoading: boolean;
     error?: string;
+    onCreateEvent: () => void;
     onUpdateEvent: (event: CreatedEventSummary) => Promise<void>;
     onDeleteEvent: (eventId: string) => Promise<void>;
 }) {
@@ -1718,9 +1729,19 @@ function EventsView({
     if (events.length === 0) {
         return (
             <Panel title="Eventos" className="mt-6">
-                <p className="text-sm leading-6 text-[#94A3B8]">
-                    Nenhum evento salvo ainda. Use Criar evento para gravar o primeiro convite no banco.
-                </p>
+                <div className="grid gap-4 rounded-2xl border border-dashed border-[#334155] bg-[#0B0F1A]/70 p-5 sm:grid-cols-[1fr_auto] sm:items-center">
+                    <div>
+                        <h2 className="text-base font-bold text-white">Nenhum evento criado ainda</h2>
+                        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#94A3B8]">
+                            Crie seu primeiro convite para publicar o link, acompanhar RSVP e organizar convidados em um
+                            painel unico.
+                        </p>
+                    </div>
+                    <ActionButton onClick={onCreateEvent}>
+                        <CalendarDays className="h-4 w-4" />
+                        Criar primeiro evento
+                    </ActionButton>
+                </div>
             </Panel>
         );
     }
