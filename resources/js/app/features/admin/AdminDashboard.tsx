@@ -1567,7 +1567,7 @@ function DashboardContent({
 
     if (view === 'integrations') {
         return (
-            <CardsModule title="Integracoes" icon={Link2} notify={notify} items={['Supabase', 'Mailpit', 'MinIO']} />
+            <CardsModule title="Integracoes" icon={Link2} notify={notify} items={['PostgreSQL', 'Mailpit', 'MinIO']} />
         );
     }
 
