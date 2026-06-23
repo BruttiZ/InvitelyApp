@@ -39,7 +39,7 @@ O redesign atual usa uma estética dark premium inspirada em Linear, Stripe, Ver
 - Link público de convite por evento em `/events/{slug}`, com nome/e-mail, confirmação ou recusa de presença, acompanhantes e mensagem.
 - RSVP público sem login com suporte a dois fluxos: link compartilhável por e-mail direto e código de 6 dígitos por e-mail para validação reforçada.
 - Formulário de confirmação com nome, e-mail, acompanhantes com botões `+` e `-`, mensagem opcional, confirmar e recusar.
-- Login/cadastro real com Supabase Auth e perfis iniciais de organizador ou convidado.
+- Login/cadastro real pela API Laravel/Sanctum, com perfis iniciais de organizador ou convidado.
 - Dashboard responsivo com sidebar no desktop, bottom navigation no mobile, métricas, gráfico de linha, distribuição de RSVP e cards de eventos.
 - Eventos com link copiável de convite, templates/fundos aplicáveis e visual público sincronizado com o card do painel.
 - Telas operacionais de eventos, convidados, templates, check-in, relatórios, integrações, configurações e plataforma.
@@ -54,7 +54,7 @@ O redesign atual usa uma estética dark premium inspirada em Linear, Stripe, Ver
 | Backend     | Laravel 12, PHP 8.4, Sanctum                                         |
 | API Go      | Servico complementar via `GO_API_URL`, acessado pelo proxy Laravel   |
 | Frontend    | React 19, TypeScript, Vite, TailwindCSS, Framer Motion, Lucide Icons |
-| Dados       | PostgreSQL, Redis, Supabase Auth                                     |
+| Dados       | PostgreSQL, Redis                                                    |
 | Infra local | Docker, Nginx, Mailpit, MinIO                                        |
 | Qualidade   | PestPHP, PHPStan/Larastan, Laravel Pint, ESLint, Prettier            |
 
@@ -74,13 +74,16 @@ docker compose up -d --build
 
 ## Autenticação
 
-O frontend usa Supabase Auth para cadastro e login reais.
+O frontend usa a API Laravel local para cadastro, login e verificação por código.
+No Docker, tudo roda contra o Postgres local.
 
-Configure no `.env` local ou nas variáveis da Vercel:
+Para produção, Supabase pode ser configurado apenas no backend quando algum
+fluxo externo depender dele:
 
 ```env
-VITE_SUPABASE_URL=https://seu-projeto.supabase.co
-VITE_SUPABASE_ANON_KEY=sua-chave-anon
+SUPABASE_URL=https://seu-projeto.supabase.co
+SUPABASE_ANON_KEY=sua-chave-anon
+SUPABASE_SERVICE_ROLE_KEY=sua-chave-service-role
 ```
 
 No cadastro, o usuário escolhe o perfil inicial:
@@ -88,7 +91,7 @@ No cadastro, o usuário escolhe o perfil inicial:
 - `Organizador`: acessa o dashboard operacional.
 - `Convidado`: acessa o convite público.
 
-O papel `Admin da plataforma` não é autoatribuído publicamente. Para testar esse papel com Supabase, promova o usuário manualmente no metadata do Supabase para `role = platform_admin`.
+O papel `Admin da plataforma` não é autoatribuído publicamente.
 
 ## Link público de convite e RSVP
 
@@ -180,10 +183,14 @@ npm run build:vercel
 Fluxo principal em producao:
 
 ```text
-React -> Laravel BFF/Proxy -> API Go -> PostgreSQL/Supabase
+React -> Laravel BFF/API -> PostgreSQL local
 ```
 
-O React entrega a experiencia do organizador e do convidado. O Laravel serve o app, concentra as rotas publicas do produto e atua como BFF/proxy para proteger a API Go do navegador. A API Go executa os fluxos operacionais de eventos, convidados, RSVP, orcamento, presentes, analytics e lembretes, usando PostgreSQL para os dados do produto e Supabase Auth para autenticacao.
+O React entrega a experiencia do organizador e do convidado. O Laravel serve o app,
+concentra as rotas publicas do produto, autentica com Sanctum e atua como
+BFF/proxy para proteger a API Go do navegador quando ela estiver configurada. A
+API Go executa fluxos operacionais complementares, usando PostgreSQL para os
+dados do produto.
 
 O backend é organizado por fronteiras de domínio e casos de uso:
 
@@ -197,10 +204,10 @@ O backend é organizado por fronteiras de domínio e casos de uso:
 O frontend é organizado por features:
 
 - `resources/js/app/features/landing`: landing page SaaS.
-- `resources/js/app/features/auth`: login e cadastro reais com Supabase Auth.
+- `resources/js/app/features/auth`: login, cadastro e verificacao por codigo via API Laravel.
 - `resources/js/app/features/admin`: dashboard operacional.
 - `resources/js/app/features/public`: convite público e RSVP.
-- `docs/sql/public_rsvp_otps.sql`: script SQL para criar a tabela de OTP do RSVP público no Supabase.
+- `docs/sql/public_rsvp_otps.sql`: referencia SQL legada para OTP do RSVP publico.
 
 ## Fluxo de portfólio
 

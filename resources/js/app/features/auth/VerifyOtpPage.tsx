@@ -3,8 +3,8 @@ import { motion } from 'framer-motion';
 import { AlertTriangle, CheckCircle2, Loader2, Mail, Sparkles } from 'lucide-react';
 import { SyntheticEvent, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { AuthSession, storeSession } from '../../auth/session';
-import { getSupabaseClient, isSupabaseConfigured } from '../../../lib/supabase';
+import { AuthSession, UserRole, storeSession } from '../../auth/session';
+import { apiV1Url } from '../../../lib/api';
 
 type VerifyStep = 'requesting' | 'verifying' | 'done';
 
@@ -15,18 +15,83 @@ type VerifyOtpPageProps = {
     email?: string;
 };
 
-function toAuthSession(accessToken: string, userId: string, email: string): AuthSession {
-    const safeEmail = email.length > 0 ? email : 'usuario@invitely.dev';
+type ApiAuthResponse = {
+    data?: {
+        token?: string;
+        token_type?: string;
+        user?: {
+            id: string | number;
+            tenant_id?: string | null;
+            email: string;
+            name: string;
+            role: string;
+        };
+    };
+    message?: string;
+    error?: unknown;
+    errors?: Record<string, unknown>;
+};
+
+function normalizeRole(role: unknown): UserRole {
+    return role === 'guest' || role === 'platform_admin' || role === 'owner' ? role : 'owner';
+}
+
+function stringifyApiMessage(value: unknown): string | null {
+    if (typeof value === 'string' && value.trim() !== '') {
+        return value;
+    }
+
+    if (Array.isArray(value)) {
+        const messages = value.map(stringifyApiMessage).filter(Boolean);
+
+        return messages.length > 0 ? messages.join(' ') : null;
+    }
+
+    if (value && typeof value === 'object') {
+        const messages = Object.values(value).map(stringifyApiMessage).filter(Boolean);
+
+        return messages.length > 0 ? messages.join(' ') : JSON.stringify(value);
+    }
+
+    return null;
+}
+
+async function postJson(path: string, payload: Record<string, string>): Promise<ApiAuthResponse> {
+    const response = await fetch(apiV1Url(path), {
+        method: 'POST',
+        headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    });
+
+    const data = (await response.json().catch(() => ({}))) as ApiAuthResponse;
+
+    if (!response.ok) {
+        throw new Error(
+            stringifyApiMessage(data.errors) ??
+                stringifyApiMessage(data.message) ??
+                stringifyApiMessage(data.error) ??
+                'Nao foi possivel confirmar o e-mail agora.',
+        );
+    }
+
+    return data;
+}
+
+function toAuthSession(data: ApiAuthResponse): AuthSession {
+    if (!data.data?.token || !data.data.user) {
+        throw new Error('Falha ao verificar o codigo. Tente novamente.');
+    }
 
     return {
-        token: accessToken,
+        token: data.data.token,
         token_type: 'Bearer',
         user: {
-            id: userId,
-            email: safeEmail,
-            name: safeEmail.split('@')[0] ?? 'Usuario',
-            role: 'owner',
-            tenant_id: null,
+            ...data.data.user,
+            tenant_id: data.data.user.tenant_id ?? null,
+            role: normalizeRole(data.data.user.role),
         },
     };
 }
@@ -47,21 +112,13 @@ export function VerifyOtpPage({ email: initialEmail }: VerifyOtpPageProps) {
             }
 
             setError(null);
-            const supabase = getSupabaseClient();
-
-            // Request OTP for the email
-            const { error } = await supabase.auth.signInWithOtp({
+            const data = await postJson('/auth/resend-email-code', {
                 email: email.trim(),
-                options: {
-                    shouldCreateUser: false, // Only send OTP if user exists, or allow signup
-                },
             });
 
-            if (error) {
-                throw new Error(error.message);
-            }
-
-            setMessage(`Enviamos um código de 6 dígitos para ${email}. Verifique sua caixa de entrada.`);
+            setMessage(
+                data.message ?? `Enviamos um código de 6 dígitos para ${email}. Verifique sua caixa de entrada.`,
+            );
             setStep('verifying');
         },
         onError: (err: Error) => {
@@ -76,25 +133,13 @@ export function VerifyOtpPage({ email: initialEmail }: VerifyOtpPageProps) {
             }
 
             setError(null);
-            const supabase = getSupabaseClient();
-
-            // Verify the OTP code
-            const { data, error } = await supabase.auth.verifyOtp({
+            const data = await postJson('/auth/verify-email-code', {
                 email: email.trim(),
-                token: code,
-                type: 'email',
+                code,
+                device_name: 'web',
             });
 
-            if (error) {
-                throw new Error(error.message);
-            }
-
-            if (!data.session || !data.user) {
-                throw new Error('Falha ao verificar o código. Tente novamente.');
-            }
-
-            // Store session and redirect
-            const session = toAuthSession(data.session.access_token, data.user.id, data.user.email ?? '');
+            const session = toAuthSession(data);
             storeSession(session);
             setMessage('Autenticação bem-sucedida! Redirecionando...');
             setStep('done');
@@ -175,17 +220,6 @@ export function VerifyOtpPage({ email: initialEmail }: VerifyOtpPageProps) {
                             </div>
                         </div>
 
-                        {!isSupabaseConfigured() ? (
-                            <motion.div
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                className="mt-5 rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/10 p-4 text-sm text-[#FCD34D]"
-                            >
-                                <div className="font-semibold">⚠️ Supabase não configurado</div>
-                                <p className="mt-1">Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY</p>
-                            </motion.div>
-                        ) : null}
-
                         {error ? (
                             <motion.div
                                 initial={{ opacity: 0, y: -10 }}
@@ -226,9 +260,7 @@ export function VerifyOtpPage({ email: initialEmail }: VerifyOtpPageProps) {
                                     </div>
                                     <button
                                         type="submit"
-                                        disabled={
-                                            !email.includes('@') || requestOtp.isPending || !isSupabaseConfigured()
-                                        }
+                                        disabled={!email.includes('@') || requestOtp.isPending}
                                         className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#0EA5E9] px-4 text-sm font-bold text-white transition hover:scale-[1.03] disabled:opacity-50"
                                     >
                                         {requestOtp.isPending ? (

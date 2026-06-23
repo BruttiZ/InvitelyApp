@@ -6,7 +6,7 @@ Invitely e uma plataforma open source para convites digitais, RSVP, check-in por
 
 O Nginx recebe as requisicoes em `http://localhost:8082` e encaminha PHP para o container `app`, que roda Laravel em PHP 8.4-FPM. O Laravel entrega a SPA React pelo Blade em `resources/views/app.blade.php`; o React assume as rotas publicas, login/cadastro e dashboard no navegador.
 
-As rotas da API ficam em `routes/api.php` com prefixo `/api/v1`. A pagina publica busca dados em `/api/v1/events/{slug}` e registra RSVP em `/api/v1/events/{slug}/rsvp`. O painel tambem pode chamar a API Go por meio do proxy Laravel em `/api/v1/go/*`. Para o portfolio publicado na Vercel, o login/cadastro usa Supabase Auth e o dashboard em `/admin` muda conforme o papel salvo no metadata do usuario.
+As rotas da API ficam em `routes/api.php` com prefixo `/api/v1`. A pagina publica busca dados em `/api/v1/events/{slug}` e registra RSVP em `/api/v1/events/{slug}/rsvp`. O painel tambem pode chamar a API Go por meio do proxy Laravel em `/api/v1/invitely/*`. Login, cadastro e verificacao por codigo usam a API Laravel local com Sanctum.
 
 ## Fluxo de portfolio
 
@@ -21,13 +21,17 @@ Abra:
 
 ## Autenticacao
 
-O frontend usa Supabase Auth para cadastro e login reais.
+O frontend usa a API Laravel para cadastro, login e verificacao por codigo.
 
 Configure:
 
 ```env
-VITE_SUPABASE_URL=https://seu-projeto.supabase.co
-VITE_SUPABASE_ANON_KEY=sua-chave-anon
+DB_CONNECTION=pgsql
+DB_HOST=postgres
+DB_PORT=5432
+DB_DATABASE=invitely
+DB_USERNAME=invitely
+DB_PASSWORD=invitely
 ```
 
 No cadastro, o usuario escolhe o perfil inicial:
@@ -35,7 +39,7 @@ No cadastro, o usuario escolhe o perfil inicial:
 - `Organizador`: acessa o dashboard operacional.
 - `Convidado`: acessa o convite publico.
 
-O papel `Admin da plataforma` deve ser promovido manualmente no Supabase metadata com `role = platform_admin`.
+O papel `Admin da plataforma` nao e autoatribuido publicamente.
 
 ## Redesign atual
 

@@ -17,11 +17,11 @@ x-laravel-environment: &laravel-environment
   APP_URL: "${APP_URL:-http://localhost:8082}"
   FRONTEND_URL: "${FRONTEND_URL:-http://localhost:8082}"
   DB_CONNECTION: pgsql
-  DB_HOST: postgres
-  DB_PORT: "5432"
-  DB_DATABASE: invitely
-  DB_USERNAME: invitely
-  DB_PASSWORD: secret
+  DB_HOST: "${DB_HOST:-postgres}"
+  DB_PORT: "${DB_PORT:-5432}"
+  DB_DATABASE: "${DB_DATABASE:-invitely}"
+  DB_USERNAME: "${DB_USERNAME:-invitely}"
+  DB_PASSWORD: "${DB_PASSWORD:-invitely}"
   REDIS_HOST: redis
   CACHE_STORE: redis
   QUEUE_CONNECTION: redis
@@ -47,6 +47,24 @@ x-laravel-environment: &laravel-environment
   RUN_SEEDERS: "${RUN_SEEDERS:-true}"
 
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: "${DB_DATABASE:-invitely}"
+      POSTGRES_USER: "${DB_USERNAME:-invitely}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:-invitely}"
+    ports:
+      - "${DB_FORWARD_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-invitely} -d ${DB_DATABASE:-invitely}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - invitely
+
   nginx:
     image: nginx:1.27-alpine
     ports:
@@ -117,24 +135,6 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "test -f public/build/manifest.json || exit 1"]
       interval: 10s
-      timeout: 5s
-      retries: 20
-    networks:
-      - invitely
-
-  postgres:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_DB: invitely
-      POSTGRES_USER: invitely
-      POSTGRES_PASSWORD: secret
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U invitely -d invitely"]
-      interval: 5s
       timeout: 5s
       retries: 20
     networks:
