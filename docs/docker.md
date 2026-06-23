@@ -47,6 +47,14 @@ O container `app` executa automaticamente:
 - migrations;
 - seeders.
 
+Dados demo locais:
+
+- Owner: `owner@invitely.local` / `password`
+- Guest: `guest@invitely.local` / `password`
+- Admin plataforma: `platform@invitely.local` / `password`
+- Evento publico: `http://localhost:8082/events/invitely-launch-night`
+- Token de convite: `demo-invite-token`
+
 O servico `node` executa automaticamente:
 
 - `npm install`;
