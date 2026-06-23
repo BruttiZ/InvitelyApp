@@ -18,7 +18,7 @@ storage locais, sem depender do banco de producao.
 - `app`: Laravel em PHP-FPM.
 - `queue`: worker de filas Laravel.
 - `node`: instala dependencias JS e gera o build frontend.
-- `postgres`: banco local.
+- `postgres`: banco local isolado, por padrao exposto em `localhost:5432`.
 - `redis`: cache, sessao e filas locais.
 - `mailpit`: caixa de e-mail local em `http://localhost:8025`.
 - `minio`: storage S3 local em `http://localhost:9001`.
@@ -47,7 +47,15 @@ O container `app` executa automaticamente:
 - migrations;
 - seeders.
 
-Dados demo locais:
+Banco local:
+
+- Host entre containers: `postgres:5432`
+- Host para ferramentas no computador: `localhost:5432`
+- Database: `invitely`
+- Usuario: `invitely`
+- Senha: `invitely`
+
+Dados demo Laravel:
 
 - Owner: `owner@invitely.local` / `password`
 - Guest: `guest@invitely.local` / `password`
@@ -72,17 +80,29 @@ padrao:
 
 - `GO_API_URL`
 - `INVITELY_API_BASE_URL`
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
 
-Se um `.env` antigo tiver variaveis de banco externas, o `compose.yaml` ainda
-forca `app` e `queue` a usarem o Postgres local em `postgres:5432`.
+O Postgres local e usado por padrao:
+
+- `DB_HOST=postgres`
+- `DB_PORT=5432`
+- `DB_FORWARD_PORT=5432`
+- `DB_DATABASE=invitely`
+- `DB_USERNAME=invitely`
+- `DB_PASSWORD=invitely`
+
+Supabase nao faz parte do ambiente local. Quando for necessario em producao,
+configure apenas as variaveis backend:
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
 ## Comandos uteis
 
 ```bash
 docker compose ps
 docker compose config --quiet
+docker compose logs -f postgres
 docker compose logs -f app
 docker compose exec app php artisan migrate:fresh --seed
 docker compose exec app php artisan test
