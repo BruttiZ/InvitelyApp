@@ -3,7 +3,7 @@ services:
     name: convitefaculdade-laravel
     runtime: docker
     plan: free
-    dockerfilePath: ./Dockerfile.render
+    dockerfilePath: ./Docker/Dockerfile.render
     dockerContext: .
     healthCheckPath: /up
     envVars:

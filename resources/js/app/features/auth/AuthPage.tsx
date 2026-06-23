@@ -119,7 +119,7 @@ function stringifyApiMessage(value: unknown): string | null {
 }
 
 async function requestApiAuth(mode: AuthMode, payload: Record<string, string>): Promise<AuthSession> {
-    const response = await fetch(apiV1Url(mode === 'login' ? '/invitely/auth/login' : '/invitely/auth/register'), {
+    const response = await fetch(apiV1Url(mode === 'login' ? '/auth/login' : '/auth/register'), {
         method: 'POST',
         headers: {
             Accept: 'application/json',

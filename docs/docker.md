@@ -1,6 +1,16 @@
 # Docker
 
-O ambiente Docker foi pensado para onboarding rapido e previsivel.
+O ambiente Docker local e isolado por padrao. Ele sobe banco, cache, e-mail e
+storage locais, sem depender do banco de producao.
+
+## Estrutura
+
+- `compose.yaml`: unico arquivo Docker mantido na raiz.
+- `Docker/Dockerfile`: imagem local PHP-FPM usada por `app` e `queue`.
+- `Docker/Dockerfile.render`: imagem usada pelo Render.
+- `Docker/Dockerfile*.dockerignore`: ignores especificos de build.
+- `Docker/entrypoint.sh`: bootstrap do Laravel dentro do container.
+- `Docker/nginx/default.conf`: virtual host local do Nginx.
 
 ## Servicos
 
@@ -8,15 +18,22 @@ O ambiente Docker foi pensado para onboarding rapido e previsivel.
 - `app`: Laravel em PHP-FPM.
 - `queue`: worker de filas Laravel.
 - `node`: instala dependencias JS e gera o build frontend.
-- `postgres`: banco principal.
-- `redis`: cache, sessao e filas.
-- `mailpit`: caixa de e-mail local.
-- `minio`: storage compativel com S3.
+- `postgres`: banco local isolado, por padrao exposto em `localhost:5432`.
+- `redis`: cache, sessao e filas locais.
+- `mailpit`: caixa de e-mail local em `http://localhost:8025`.
+- `minio`: storage S3 local em `http://localhost:9001`.
 
 ## Primeiro uso
 
 ```bash
 cp .env.example .env
+docker compose up -d --build
+```
+
+No PowerShell:
+
+```powershell
+Copy-Item .env.example .env
 docker compose up -d --build
 ```
 
@@ -30,6 +47,22 @@ O container `app` executa automaticamente:
 - migrations;
 - seeders.
 
+Banco local:
+
+- Host entre containers: `postgres:5432`
+- Host para ferramentas no computador: `localhost:5432`
+- Database: `invitely`
+- Usuario: `invitely`
+- Senha: `invitely`
+
+Dados demo Laravel:
+
+- Owner: `owner@invitely.local` / `password`
+- Guest: `guest@invitely.local` / `password`
+- Admin plataforma: `platform@invitely.local` / `password`
+- Evento publico: `http://localhost:8082/events/invitely-launch-night`
+- Token de convite: `demo-invite-token`
+
 O servico `node` executa automaticamente:
 
 - `npm install`;
@@ -37,31 +70,39 @@ O servico `node` executa automaticamente:
 - remocao de `public/hot` para garantir que o Laravel use os assets estaticos;
 - processo persistente para healthcheck e comandos de tooling.
 
-No fluxo Docker padrao, abra a aplicacao em `http://localhost:8082`. O navegador nao precisa acessar uma porta Vite separada.
+No fluxo Docker padrao, abra `http://localhost:8082`. O navegador nao precisa
+acessar uma porta Vite separada.
 
-Rotas principais:
+## Env local
 
-- Landing page: `http://localhost:8082`
-- Login / cadastro: `http://localhost:8082/login`
-- Dashboard: `http://localhost:8082/admin`
-- Convite de exemplo: `http://localhost:8082/events/invitely-launch-night`
+O `.env.example` agora e local-first. As integracoes externas ficam vazias por
+padrao:
 
-## Autenticacao
+- `GO_API_URL`
+- `INVITELY_API_BASE_URL`
 
-O frontend usa Supabase Auth para cadastro e login reais no ambiente de portfolio.
+O Postgres local e usado por padrao:
 
-Configure no `.env`:
+- `DB_HOST=postgres`
+- `DB_PORT=5432`
+- `DB_FORWARD_PORT=5432`
+- `DB_DATABASE=invitely`
+- `DB_USERNAME=invitely`
+- `DB_PASSWORD=invitely`
 
-```env
-VITE_SUPABASE_URL=https://seu-projeto.supabase.co
-VITE_SUPABASE_ANON_KEY=sua-chave-anon
-```
+Supabase nao faz parte do ambiente local. Quando for necessario em producao,
+configure apenas as variaveis backend:
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
 ## Comandos uteis
 
 ```bash
 docker compose ps
 docker compose config --quiet
+docker compose logs -f postgres
 docker compose logs -f app
 docker compose exec app php artisan migrate:fresh --seed
 docker compose exec app php artisan test
@@ -75,4 +116,5 @@ docker compose down -v
 docker compose up -d --build
 ```
 
-Esse comando remove volumes locais, incluindo banco, Redis, MinIO, dependencias Composer e build frontend.
+Esse comando remove volumes locais, incluindo banco, Redis, MinIO, dependencias
+Composer e build frontend.

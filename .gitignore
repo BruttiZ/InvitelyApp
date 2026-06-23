@@ -2,7 +2,9 @@
 *.md
 !README.md
 !README.*.md
+!docs/database-schema.md
 .DS_Store
+.npm-cache
 .env
 .env.backup
 .env.production
