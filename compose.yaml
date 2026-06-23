@@ -1,12 +1,60 @@
+name: invitely
+
+x-app-build: &app-build
+  context: .
+  dockerfile: Docker/Dockerfile
+  target: app
+
+x-app-volumes: &app-volumes
+  - ./:/var/www/html
+  - vendor-data:/var/www/html/vendor
+  - build-data:/var/www/html/public/build
+
+x-laravel-environment: &laravel-environment
+  APP_NAME: "${APP_NAME:-Invitely}"
+  APP_ENV: local
+  APP_DEBUG: "true"
+  APP_URL: "${APP_URL:-http://localhost:8082}"
+  FRONTEND_URL: "${FRONTEND_URL:-http://localhost:8082}"
+  DB_CONNECTION: pgsql
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_DATABASE: invitely
+  DB_USERNAME: invitely
+  DB_PASSWORD: secret
+  REDIS_HOST: redis
+  CACHE_STORE: redis
+  QUEUE_CONNECTION: redis
+  SESSION_DRIVER: redis
+  MAIL_MAILER: smtp
+  MAIL_HOST: mailpit
+  MAIL_PORT: "1025"
+  MAIL_FROM_ADDRESS: "${MAIL_FROM_ADDRESS:-no-reply@invitely.local}"
+  MAIL_FROM_NAME: "${APP_NAME:-Invitely}"
+  AWS_ACCESS_KEY_ID: invitely
+  AWS_SECRET_ACCESS_KEY: invitely-secret
+  AWS_DEFAULT_REGION: us-east-1
+  AWS_BUCKET: invitely
+  AWS_ENDPOINT: http://minio:9000
+  AWS_USE_PATH_STYLE_ENDPOINT: "true"
+  INVITELY_API_BASE_URL: "${INVITELY_API_BASE_URL:-}"
+  INVITELY_API_KEY: "${INVITELY_API_KEY:-}"
+  INVITELY_API_TIMEOUT: "${INVITELY_API_TIMEOUT:-30}"
+  GO_API_URL: "${GO_API_URL:-}"
+  GO_API_INTERNAL_KEY: "${GO_API_INTERNAL_KEY:-}"
+  GO_API_TIMEOUT: "${GO_API_TIMEOUT:-30}"
+  RUN_MIGRATIONS: "${RUN_MIGRATIONS:-true}"
+  RUN_SEEDERS: "${RUN_SEEDERS:-true}"
+
 services:
   nginx:
     image: nginx:1.27-alpine
     ports:
-      - "${APP_PORT:-8080}:80"
+      - "${APP_PORT:-8082}:80"
     volumes:
       - ./:/var/www/html
       - build-data:/var/www/html/public/build:ro
-      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./Docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       app:
         condition: service_healthy
@@ -21,44 +69,16 @@ services:
       - invitely
 
   app:
-    build:
-      context: .
-      target: app
-    environment:
-      APP_NAME: Invitely
-      APP_ENV: local
-      APP_DEBUG: "true"
-      DB_CONNECTION: pgsql
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_DATABASE: invitely
-      DB_USERNAME: invitely
-      DB_PASSWORD: secret
-      REDIS_HOST: redis
-      CACHE_STORE: redis
-      QUEUE_CONNECTION: redis
-      SESSION_DRIVER: redis
-      MAIL_MAILER: smtp
-      MAIL_HOST: mailpit
-      MAIL_PORT: 1025
-      MAIL_FROM_ADDRESS: no-reply@invitely.app
-      MAIL_FROM_NAME: Invitely
-      AWS_ACCESS_KEY_ID: invitely
-      AWS_SECRET_ACCESS_KEY: invitely-secret
-      AWS_DEFAULT_REGION: us-east-1
-      AWS_BUCKET: invitely
-      AWS_ENDPOINT: http://minio:9000
-      AWS_USE_PATH_STYLE_ENDPOINT: "true"
-      RUN_SEEDERS: "true"
-    volumes:
-      - ./:/var/www/html
-      - vendor-data:/var/www/html/vendor
-      - build-data:/var/www/html/public/build
+    build: *app-build
+    environment: *laravel-environment
+    volumes: *app-volumes
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "php artisan about --only=environment >/dev/null 2>&1 || exit 1"]
       interval: 10s
@@ -69,27 +89,15 @@ services:
       - invitely
 
   queue:
-    build:
-      context: .
-      target: app
+    build: *app-build
     command: php artisan queue:work --tries=3 --backoff=5
     environment:
-      APP_NAME: Invitely
+      <<: *laravel-environment
       RUN_MIGRATIONS: "false"
       RUN_SEEDERS: "false"
-      DB_CONNECTION: pgsql
-      DB_HOST: postgres
-      DB_DATABASE: invitely
-      DB_USERNAME: invitely
-      DB_PASSWORD: secret
-      REDIS_HOST: redis
-      CACHE_STORE: redis
-      QUEUE_CONNECTION: redis
-      SESSION_DRIVER: redis
-    volumes:
-      - ./:/var/www/html
-      - vendor-data:/var/www/html/vendor
-      - build-data:/var/www/html/public/build
+    volumes: *app-volumes
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       app:
         condition: service_healthy
@@ -120,6 +128,8 @@ services:
       POSTGRES_DB: invitely
       POSTGRES_USER: invitely
       POSTGRES_PASSWORD: secret
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -127,18 +137,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     networks:
       - invitely
 
   redis:
     image: redis:7.4-alpine
     command: redis-server --appendonly yes
-    volumes:
-      - redis-data:/data
     ports:
       - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -160,11 +168,11 @@ services:
     environment:
       MINIO_ROOT_USER: invitely
       MINIO_ROOT_PASSWORD: invitely-secret
-    volumes:
-      - minio-data:/data
     ports:
       - "${MINIO_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s
@@ -178,9 +186,9 @@ networks:
     driver: bridge
 
 volumes:
+  build-data:
+  minio-data:
+  node-modules:
   postgres-data:
   redis-data:
-  minio-data:
   vendor-data:
-  build-data:
-  node-modules:

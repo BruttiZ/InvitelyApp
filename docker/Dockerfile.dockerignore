@@ -2,6 +2,7 @@
 .github
 node_modules
 vendor
+dist
 storage/logs/*
 storage/framework/cache/*
 storage/framework/sessions/*
@@ -9,4 +10,9 @@ storage/framework/views/*
 bootstrap/cache/*.php
 public/storage
 .env
+.env.backup
+.env.production
+compose.override.yaml
+compose.override.yml
+docker-compose.override.yaml
 docker-compose.override.yml

@@ -34,7 +34,7 @@ RUN composer install --no-interaction --prefer-dist --optimize-autoloader --no-s
 
 COPY . .
 COPY --from=frontend /app/public/build ./public/build
-COPY docker/entrypoint.sh /usr/local/bin/invitely-entrypoint
+COPY Docker/entrypoint.sh /usr/local/bin/invitely-entrypoint
 
 RUN chmod +x /usr/local/bin/invitely-entrypoint \
     && rm -f bootstrap/cache/*.php \
